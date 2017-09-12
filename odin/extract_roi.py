@@ -82,7 +82,7 @@ class ROIDataExtractor(object):
         if is_mirax:
             url = urljoin(self.ome_seadragon_host, 'mirax/deepzoom/get/%s.json' % omero_id)
         else:
-            url = urljoin(self.ome_seadragon_host, 'deepzoom/get/$s.json' % omero_id)
+            url = urljoin(self.ome_seadragon_host, 'deepzoom/get/%s.json' % omero_id)
         response = self.ome_seadragon_client.get(url)
         if response.status_code == requests.codes.OK:
             return {
