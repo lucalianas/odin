@@ -67,6 +67,22 @@ class ROIDataExtractor(object):
         response = self.promort_client.get(url)
         self.ome_seadragon_host = response.json()['base_url']
 
+    def _load_slides_infos(self, case_label):
+        url = urljoin(self.promort_host, 'api/cases/%s/' % case_label)
+        response = self.promort_client.get(url)
+        if response.status_code == requests.codes.OK:
+            slides = response.json()['slides']
+            return [
+                {
+                    'id': s['id'],
+                    'omero_id': s['omero_id'],
+                    'image_type': s['image_type']
+                }
+                for s in slides if s['image_type']
+            ]
+        else:
+            return []
+
     def _load_slide_infos(self, slide_label):
         url = urljoin(self.promort_host, 'api/slides/%s/' % slide_label)
         response = self.promort_client.get(url)
@@ -95,24 +111,76 @@ class ROIDataExtractor(object):
         else:
             return None
 
-    def _get_roi_bounding_box_coordinates(self, case, slide, reviewer, roi_type, roi_label):
+    def _load_rois_from_http_response(self, response_json):
+        rois = []
+        for rj in response_json:
+            rois.append({
+                'slide': rj['slide'],
+                'case': rj['case'],
+                'reviewer': rj['author'],
+                'label': rj['label'],
+                'segments': json.loads(rj['roi_json'])['segments']
+            })
+        return rois
+
+    def _get_rois_by_case(self, case):
+        url = urljoin(self.promort_host, 'api/odin/%s/' % case)
+        response = self.promort_client.get(url)
+        rois = []
+        if response.status_code == requests.codes.OK:
+            rois = self._load_rois_from_http_response(response.json())
+        else:
+            self.logger.error(response.status_code)
+        return rois
+
+    def _get_rois_by_slide(self, case, slide):
+        url = urljoin(self.promort_host, 'api/odin/%s/%s/' % (case, slide))
+        response = self.promort_client.get(url)
+        rois = []
+        if response.status_code == requests.codes.OK:
+            rois = self._load_rois_from_http_response(response.json())
+        else:
+            self.logger.error(response.status_code)
+        return rois
+
+    def _get_rois_by_reviewer(self, case, slide, reviewer):
+        url = urljoin(self.promort_host, 'api/odin/%s/%s/%s/' % (case, slide, reviewer))
+        response = self.promort_client.get(url)
+        if response.status_code == requests.codes.OK:
+            self.logger.info(len(response.json()))
+        else:
+            self.logger.error(response.status_code)
+
+    def _get_rois_by_type(self, case, slide, reviewer, roi_type):
+        url = urljoin(self.promort_host, 'api/odin/%s/%s/%s/%s/' % (case, slide, reviewer, roi_type))
+        response = self.promort_client.get(url)
+        if response.status_code == requests.codes.OK:
+            self.logger.info(len(response.json()))
+        else:
+            self.logger.error(response.status_code)
+
+    def _get_roi_by_label(self, case, slide, reviewer, roi_type, roi_label):
         url = urljoin(self.promort_host, 'api/odin/%s/%s/%s/%s/%s/' %
                       (case, slide, reviewer, roi_type, roi_label))
         response = self.promort_client.get(url)
         if response.status_code == requests.codes.OK:
             roi_segments = json.loads(response.json()['roi_json'])['segments']
-            max_x = max([(seg['point']['x']) for seg in roi_segments])
-            min_x = min([(seg['point']['x']) for seg in roi_segments])
-            max_y = max([(seg['point']['y']) for seg in roi_segments])
-            min_y = min([(seg['point']['y']) for seg in roi_segments])
-            return {
-                'up_left': (min_x, min_y),
-                'up_right': (max_x, min_y),
-                'low_right': (max_x, max_y),
-                'low_left': (min_x, max_y)
-            }
+            return roi_segments
         else:
             return None
+
+    def _get_roi_bounding_box_coordinates(self, roi_segments):
+        max_x = max([(seg['point']['x']) for seg in roi_segments])
+        min_x = min([(seg['point']['x']) for seg in roi_segments])
+        max_y = max([(seg['point']['y']) for seg in roi_segments])
+        min_y = min([(seg['point']['y']) for seg in roi_segments])
+        return {
+            'up_left': (min_x, min_y),
+            'up_right': (max_x, min_y),
+            'low_right': (max_x, max_y),
+            'low_left': (min_x, max_y)
+        }
+
 
     def _convert_to_tile(self, corner, tile_size):
         return {
@@ -133,11 +201,12 @@ class ROIDataExtractor(object):
 
     def _get_tile(self, slide_base_url, row, column, tile_size, overlap=0, zoom_level=0, img_format='jpeg'):
         url = urljoin(slide_base_url, '%s/%s_%s.%s' % (zoom_level, column, row, img_format))
-        response = self.ome_seadragon_client.get(url)
+        response = self.ome_seadragon_client.get(url, params={'tile_size': tile_size})
         if response.status_code == requests.codes.OK:
             tile = Image.open(StringIO(response.content)).crop((overlap, overlap, tile_size+1, tile_size+1))
         else:
-            raise ValueError('Error while loading tile')
+            tile = None
+            self.logger.error(url)
         return tile
 
     def _extract_roi_region(self, roi_bbox, slide_base_url, tile_size, overlap=0, zoom_level=0, img_format='jpeg'):
@@ -148,38 +217,87 @@ class ROIDataExtractor(object):
             for column_index, column in enumerate(xrange(roi_bbox['up_left']['column'],
                                                          roi_bbox['up_right']['column']+1)):
                 tile = self._get_tile(slide_base_url, row, column, tile_size, overlap, zoom_level, img_format)
+                if tile is None:
+                    # retry
+                    self.logger.info('Failed loading tile, retry')
+                    tile = self._get_tile(slide_base_url, row, column, tile_size, overlap, zoom_level, img_format)
+                    if tile is None:
+                        raise ValueError('Unable to load tile')
                 region_img.paste(tile, (column_index * tile_size, row_index * tile_size))
         return region_img
 
-    def _save_region(self, region_img, output_folder, slide_label, roi_label):
+    def _prepare_output_path(self, output_folder, case_label, slide_label, reviewer):
+        output_path = os.path.join(output_folder, case_label, slide_label, reviewer)
+        try:
+            os.makedirs(output_path)
+        except OSError:
+            pass
+        return output_path
+
+    def _save_region(self, region_img, output_folder, case_label, slide_label, reviewer, roi_label):
         self.logger.info('Saving image')
-        fname = '%s_%s.jpeg' % (slide_label, roi_label)
-        out_file = os.path.join(output_folder, fname)
+        output_folder = self._prepare_output_path(output_folder, case_label, slide_label, reviewer)
+        file_name = '%s_%s.png' % (slide_label, roi_label)
+        out_file = os.path.join(output_folder, file_name)
         with open(out_file, 'w') as of:
             region_img.save(of)
             self.logger.info('Image saved')
 
-    def run(self, case, slide, reviewer, roi_type, roi_label, out_folder):
+    def _extract_roi(self, roi_segments, image_details, tile_size):
+        if tile_size is not None:
+            tile_size = tile_size
+        else:
+            tile_size = image_details['tile_size']
+        bbox_coordinates = self._get_roi_bounding_box_coordinates(roi_segments)
+        bbox_tiles = self._get_bbox_tiles(bbox_coordinates, tile_size)
+        max_zoom_level = self._get_max_zoom_level(image_details['image_height'], image_details['image_width'])
+        region = self._extract_roi_region(bbox_tiles, image_details['base_url'], tile_size,
+                                          image_details['tile_overlap'], max_zoom_level)
+        return region
+
+    def _run_C(self, case, out_folder, tile_size):
+        slides_infos = self._load_slides_infos(case)
+        for info in slides_infos:
+            if info['omero_id']:
+                self.logger.info(info)
+                image_details = self._load_image_details(
+                    info['id'] if info['image_type'] == 'MIRAX' else info['omero_id'],
+                    info['image_type'] == 'MIRAX'
+                )
+                self.logger.info(image_details)
+                roi_segments_list = self._get_rois_by_case(case)
+                for roi in roi_segments_list:
+                    self.logger.info('Processing ROI %s of slide %s', roi['label'], roi['slide'])
+                    region = self._extract_roi(roi['segments'], image_details, tile_size)
+                    self._save_region(region, out_folder, case, roi['slide'], roi['reviewer'], roi['label'])
+
+    def _run_CSRTL(self, case, slide, reviewer, roi_type, roi_label, out_folder, tile_size):
+        slides_info = self._load_slide_infos(slide)
+        if slides_info['omero_id']:
+            image_details = self._load_image_details(
+                slide if slides_info['image_type'] == 'MIRAX' else slides_info['omero_id'],
+                slides_info['image_type'] == 'MIRAX'
+            )
+            self.logger.info(image_details)
+            roi_segments = self._get_roi_by_label(case, slide, reviewer, roi_type, roi_label)
+            if roi_segments:
+                region = self._extract_roi(roi_segments, image_details, tile_size)
+                self._save_region(region, out_folder, case, slide, reviewer, roi_label)
+        else:
+            self.logger.warn('Slide %s is not linked to an image in OMERO', slide)
+
+    def run(self, case, slide, reviewer, roi_type, roi_label, out_folder, tile_size):
         self._login()
         perm_ok = self._check_permissions()
         if perm_ok:
             self._load_ome_seadragon_info()
-            slides_info = self._load_slide_infos(slide)
-            if slides_info['omero_id']:
-                image_details = self._load_image_details(
-                    slide if slides_info['image_type'] == 'MIRAX' else slides_info['omero_id'],
-                    slides_info['image_type'] == 'MIRAX')
-                self.logger.info(image_details)
-                bbox_coordinates = self._get_roi_bounding_box_coordinates(case, slide, reviewer,
-                                                                          roi_type, roi_label)
-                bbox_tiles = self._get_bbox_tiles(bbox_coordinates, image_details['tile_size'])
-                self.logger.info(bbox_tiles)
-                max_zoom_level = self._get_max_zoom_level(image_details['image_height'], image_details['image_width'])
-                region = self._extract_roi_region(bbox_tiles, image_details['base_url'], image_details['tile_size'],
-                                                  image_details['tile_overlap'], max_zoom_level)
-                self._save_region(region, out_folder, slide, roi_label)
+            if slide:
+                if reviewer:
+                    if roi_type:
+                        if roi_label:
+                            self._run_CSRTL(case, slide, reviewer, roi_type, roi_label, out_folder, tile_size)
             else:
-                self.logger.warn('Slide %s is not linked to an image in OMERO', slide)
+                self._run_C(case, out_folder, tile_size)
         self._logout()
 
 
@@ -192,18 +310,19 @@ def make_parser(parser):
     parser.add_argument('--output-folder', type=str, required=True,
                         help='output folder used to save ROI image and clinical data. It MUST be an existing folder')
     parser.add_argument('--case-id', type=str, required=True, help='case ID')
-    parser.add_argument('--slide-id', type=str, required=True, help='slide ID')
-    parser.add_argument('--reviewer', type=str, required=True,
-                        help='the user that performed the ROIs annotation')
-    parser.add_argument('--roi-type', type=str, required=True, choices=['slice', 'core', 'focus_region'],
+    parser.add_argument('--slide-id', type=str, help='slide ID')
+    parser.add_argument('--reviewer', type=str, help='the user that performed the ROIs annotation')
+    parser.add_argument('--roi-type', type=str, choices=['slice', 'core', 'focus_region'],
                         help='the type of the ROI that will be extracted from the slide')
-    parser.add_argument('--roi-label', type=str, required=True, help='ROI label')
+    parser.add_argument('--roi-label', type=str, help='ROI label')
+    parser.add_argument('--tile-size', type=int, default=None,
+                        help='specify the size of the tiles that will be loaded from the server')
 
 
 def implementation(host, user, passwd, logger, args):
     rois_extractor = ROIDataExtractor(host, user, passwd, logger)
     rois_extractor.run(args.case_id, args.slide_id, args.reviewer, args.roi_type,
-                       args.roi_label, args.output_folder)
+                       args.roi_label, args.output_folder, args.tile_size)
 
 
 def register(registration_list):
