@@ -6,7 +6,7 @@ try:
 except ImportError:
     import json
 
-import os, sys, requests, simplejson, math
+import os, sys, requests, math
 from urlparse import urljoin
 from cStringIO import StringIO
 from PIL import Image
