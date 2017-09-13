@@ -9,7 +9,7 @@ except ImportError:
 import os, sys, requests, math
 from urlparse import urljoin
 from cStringIO import StringIO
-from PIL import Image
+from PIL import Image, ImageDraw2
 
 
 class ROIDataExtractor(object):
@@ -243,7 +243,7 @@ class ROIDataExtractor(object):
             region_img.save(of)
             self.logger.info('Image saved')
 
-    def _extract_roi(self, roi_segments, image_details, tile_size):
+    def _extract_roi(self, roi_segments, image_details, tile_size, draw_roi=False):
         if tile_size is not None:
             tile_size = tile_size
         else:
@@ -251,9 +251,33 @@ class ROIDataExtractor(object):
         bbox_coordinates = self._get_roi_bounding_box_coordinates(roi_segments)
         bbox_tiles = self._get_bbox_tiles(bbox_coordinates, tile_size)
         max_zoom_level = self._get_max_zoom_level(image_details['image_height'], image_details['image_width'])
+        translated_roi = self._adapt_roi_to_region(roi_segments, bbox_tiles, tile_size)
         region = self._extract_roi_region(bbox_tiles, image_details['base_url'], tile_size,
                                           image_details['tile_overlap'], max_zoom_level)
-        return region
+        if draw_roi:
+            self._draw_roi_on_image(region, translated_roi)
+        return region, translated_roi
+
+    def _draw_roi_on_image(self, region_img, roi):
+        points = [(segment['point']['x'], segment['point']['y']) for segment in roi]
+        # close the line
+        points.append(points[0])
+        draw = ImageDraw2.Draw(region_img)
+        pen = ImageDraw2.Pen(color='black', width=5)
+        draw.line(points, pen)
+
+    def _adapt_roi_to_region(self, roi_segments, bbox_tiles, tile_size):
+        new_origin_x = bbox_tiles['up_left']['column'] * tile_size
+        new_origin_y = bbox_tiles['up_left']['row'] * tile_size
+        new_roi_segments = []
+        for segment in roi_segments:
+            new_roi_segments.append({
+                'point': {
+                    'x': segment['point']['x'] - new_origin_x,
+                    'y': segment['point']['y'] - new_origin_y
+                }
+            })
+        return new_roi_segments
 
     def _run_C(self, case, out_folder, tile_size):
         slides_infos = self._load_slides_infos(case)
@@ -268,25 +292,40 @@ class ROIDataExtractor(object):
                 roi_segments_list = self._get_rois_by_case(case)
                 for roi in roi_segments_list:
                     self.logger.info('Processing ROI %s of slide %s', roi['label'], roi['slide'])
-                    region = self._extract_roi(roi['segments'], image_details, tile_size)
+                    region, translated_roi = self._extract_roi(roi['segments'], image_details, tile_size)
                     self._save_region(region, out_folder, case, roi['slide'], roi['reviewer'], roi['label'])
 
-    def _run_CSRTL(self, case, slide, reviewer, roi_type, roi_label, out_folder, tile_size):
-        slides_info = self._load_slide_infos(slide)
-        if slides_info['omero_id']:
+    def _run_CS(self, case, slide, out_folder, tile_size):
+        slide_info = self._load_slide_infos(slide)
+        self.logger.info(slide_info)
+        if slide_info['omero_id']:
             image_details = self._load_image_details(
-                slide if slides_info['image_type'] == 'MIRAX' else slides_info['omero_id'],
-                slides_info['image_type'] == 'MIRAX'
+                slide if slide_info['image_type'] == 'MIRAX' else slide_info['omero_id'],
+                slide_info['image_type'] == 'MIRAX'
+            )
+            self.logger.info(image_details)
+            rois_segments_list = self._get_rois_by_slide(case, slide)
+            for roi in rois_segments_list:
+                self.logger.info('Processing ROI %s', roi['label'])
+                region, translated_roi = self._extract_roi(roi['segments'], image_details, tile_size)
+                self._save_region(region, out_folder, case, roi['slide'], roi['reviewer'], roi['label'])
+
+    def _run_CSRTL(self, case, slide, reviewer, roi_type, roi_label, out_folder, draw_roi, tile_size):
+        slide_info = self._load_slide_infos(slide)
+        if slide_info['omero_id']:
+            image_details = self._load_image_details(
+                slide if slide_info['image_type'] == 'MIRAX' else slide_info['omero_id'],
+                slide_info['image_type'] == 'MIRAX'
             )
             self.logger.info(image_details)
             roi_segments = self._get_roi_by_label(case, slide, reviewer, roi_type, roi_label)
             if roi_segments:
-                region = self._extract_roi(roi_segments, image_details, tile_size)
+                region, translated_roi = self._extract_roi(roi_segments, image_details, tile_size, draw_roi)
                 self._save_region(region, out_folder, case, slide, reviewer, roi_label)
         else:
             self.logger.warn('Slide %s is not linked to an image in OMERO', slide)
 
-    def run(self, case, slide, reviewer, roi_type, roi_label, out_folder, tile_size):
+    def run(self, case, slide, reviewer, roi_type, roi_label, out_folder, draw_roi, tile_size):
         self._login()
         perm_ok = self._check_permissions()
         if perm_ok:
@@ -295,7 +334,10 @@ class ROIDataExtractor(object):
                 if reviewer:
                     if roi_type:
                         if roi_label:
-                            self._run_CSRTL(case, slide, reviewer, roi_type, roi_label, out_folder, tile_size)
+                            self._run_CSRTL(case, slide, reviewer, roi_type, roi_label, out_folder,
+                                            draw_roi, tile_size)
+                else:
+                    self._run_CS(case, slide, out_folder, tile_size)
             else:
                 self._run_C(case, out_folder, tile_size)
         self._logout()
@@ -317,12 +359,13 @@ def make_parser(parser):
     parser.add_argument('--roi-label', type=str, help='ROI label')
     parser.add_argument('--tile-size', type=int, default=None,
                         help='specify the size of the tiles that will be loaded from the server')
+    parser.add_argument('--draw-roi', action='store_true', help='draw the ROI on the output image')
 
 
 def implementation(host, user, passwd, logger, args):
     rois_extractor = ROIDataExtractor(host, user, passwd, logger)
     rois_extractor.run(args.case_id, args.slide_id, args.reviewer, args.roi_type,
-                       args.roi_label, args.output_folder, args.tile_size)
+                       args.roi_label, args.output_folder, args.draw_roi, args.tile_size)
 
 
 def register(registration_list):
