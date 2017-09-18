@@ -1,6 +1,3 @@
-"""
-TODO: add quick doc
-"""
 try:
     import simplejson as json
 except ImportError:
@@ -279,7 +276,7 @@ class ROIDataExtractor(object):
             })
         return new_roi_segments
 
-    def _run_C(self, case, out_folder, tile_size):
+    def _run_C(self, case, out_folder, draw_roi, tile_size):
         slides_infos = self._load_slides_infos(case)
         for info in slides_infos:
             if info['omero_id']:
@@ -292,10 +289,10 @@ class ROIDataExtractor(object):
                 roi_segments_list = self._get_rois_by_case(case)
                 for roi in roi_segments_list:
                     self.logger.info('Processing ROI %s of slide %s', roi['label'], roi['slide'])
-                    region, translated_roi = self._extract_roi(roi['segments'], image_details, tile_size)
+                    region, translated_roi = self._extract_roi(roi['segments'], image_details, tile_size, draw_roi)
                     self._save_region(region, out_folder, case, roi['slide'], roi['reviewer'], roi['label'])
 
-    def _run_CS(self, case, slide, out_folder, tile_size):
+    def _run_CS(self, case, slide, out_folder, draw_roi, tile_size):
         slide_info = self._load_slide_infos(slide)
         self.logger.info(slide_info)
         if slide_info['omero_id']:
@@ -307,7 +304,7 @@ class ROIDataExtractor(object):
             rois_segments_list = self._get_rois_by_slide(case, slide)
             for roi in rois_segments_list:
                 self.logger.info('Processing ROI %s', roi['label'])
-                region, translated_roi = self._extract_roi(roi['segments'], image_details, tile_size)
+                region, translated_roi = self._extract_roi(roi['segments'], image_details, tile_size, draw_roi)
                 self._save_region(region, out_folder, case, roi['slide'], roi['reviewer'], roi['label'])
 
     def _run_CSRTL(self, case, slide, reviewer, roi_type, roi_label, out_folder, draw_roi, tile_size):
@@ -337,9 +334,9 @@ class ROIDataExtractor(object):
                             self._run_CSRTL(case, slide, reviewer, roi_type, roi_label, out_folder,
                                             draw_roi, tile_size)
                 else:
-                    self._run_CS(case, slide, out_folder, tile_size)
+                    self._run_CS(case, slide, out_folder, draw_roi, tile_size)
             else:
-                self._run_C(case, out_folder, tile_size)
+                self._run_C(case, out_folder, draw_roi, tile_size)
         self._logout()
 
 
