@@ -91,6 +91,10 @@ class ROIDataExtractor(object):
         else:
             return None
 
+    def _close_roi_path(self, segments):
+        segments.append(segments[0])
+        return segments
+
     def _load_cores_infos(self, slide_label):
         url = urljoin(self.promort_host, 'api/odin/%s/cores/' % slide_label)
         response = self.promort_client.get(url)
@@ -101,12 +105,12 @@ class ROIDataExtractor(object):
                 'case': core_json['case'],
                 'reviewer': core_json['author'],
                 'label': core_json['label'],
-                'segments': json.loads(core_json['roi_json'])['segments'],
+                'segments': self._close_roi_path(json.loads(core_json['roi_json'])['segments']),
                 'focus_regions': [
                     {
                         'label': fr['label'],
                         'positive': fr['cancerous_region'],
-                        'segments': json.loads(fr['roi_json'])['segments']
+                        'segments': self._close_roi_path(json.loads(fr['roi_json'])['segments'])
                     } for fr in core_json['focus_regions']
                 ]
             } for core_json in cores_json]
@@ -155,11 +159,18 @@ class ROIDataExtractor(object):
             'low_left': (min_x, max_y)
         }
 
-
     def _convert_to_tile(self, corner, tile_size):
         return {
             'column': int(corner[0] / tile_size),
             'row': int(corner[1] / tile_size)
+        }
+
+    def _convert_to_coordinates(self, tile, tile_size):
+        return {
+            'ul_corner': (tile['column'] * tile_size, tile['row'] * tile_size),
+            'ur_corner': (tile['column'] * tile_size, (tile['row'] * tile_size) + (tile_size - 1)),
+            'll_corner': ((tile['column'] * tile_size) + (tile_size - 1), tile['row'] * tile_size),
+            'lr_corner': ((tile['column'] * tile_size) + (tile_size - 1), (tile['row'] * tile_size) + (tile_size - 1))
         }
 
     def _get_bbox_tiles(self, roi_bounding_box, tile_size):
@@ -183,13 +194,23 @@ class ROIDataExtractor(object):
             self.logger.error(url)
         return tile
 
+    def _crop_region(self, region, bbox_tiles, bbox_coordinates, tile_size):
+        x_crop = bbox_coordinates['up_left'][0] - \
+                 self._convert_to_coordinates(bbox_tiles['up_left'], tile_size)['ul_corner'][0]
+        y_crop = bbox_coordinates['up_left'][1] - \
+                 self._convert_to_coordinates(bbox_tiles['up_left'], tile_size)['ul_corner'][1]
+        bbox_width = bbox_coordinates['up_right'][0] - bbox_coordinates['up_left'][0]
+        bbox_height = bbox_coordinates['low_left'][1] - bbox_coordinates['up_left'][1]
+        return region.crop((x_crop, y_crop, x_crop + bbox_width, y_crop + bbox_height))
+
     def _extract_roi_region(self, roi_bbox, slide_base_url, tile_size, overlap=0, zoom_level=0, img_format='jpeg'):
-        region_width = ((roi_bbox['up_right']['column'] - roi_bbox['up_left']['column']) + 1) * tile_size
-        region_height = ((roi_bbox['low_left']['row'] - roi_bbox['up_left']['row']) + 1) * tile_size
+        bbox_tiles = self._get_bbox_tiles(roi_bbox, tile_size)
+        region_width = ((bbox_tiles['up_right']['column'] - bbox_tiles['up_left']['column']) + 1) * tile_size
+        region_height = ((bbox_tiles['low_left']['row'] - bbox_tiles['up_left']['row']) + 1) * tile_size
         region_img = Image.new('RGB', (region_width, region_height))
-        for row_index, row in enumerate(xrange(roi_bbox['up_left']['row'], roi_bbox['low_left']['row']+1)):
-            for column_index, column in enumerate(xrange(roi_bbox['up_left']['column'],
-                                                         roi_bbox['up_right']['column']+1)):
+        for row_index, row in enumerate(xrange(bbox_tiles['up_left']['row'], bbox_tiles['low_left']['row']+1)):
+            for column_index, column in enumerate(xrange(bbox_tiles['up_left']['column'],
+                                                         bbox_tiles['up_right']['column']+1)):
                 tile = self._get_tile(slide_base_url, row, column, tile_size, overlap, zoom_level, img_format)
                 if tile is None:
                     # retry
@@ -198,7 +219,8 @@ class ROIDataExtractor(object):
                     if tile is None:
                         raise ValueError('Unable to load tile')
                 region_img.paste(tile, (column_index * tile_size, row_index * tile_size))
-        return region_img
+        # crop the region to ROI's bounding box
+        return self._crop_region(region_img, bbox_tiles, roi_bbox, tile_size)
 
     def _prepare_output_path(self, output_folder, case_label, slide_label, reviewer):
         output_path = os.path.join(output_folder, case_label, slide_label, reviewer)
@@ -216,6 +238,7 @@ class ROIDataExtractor(object):
         with open(out_file, 'w') as of:
             region_img.save(of)
             self.logger.info('Image saved')
+        return file_name
 
     def _extract_roi(self, roi_segments, image_details, tile_size, draw_roi=False):
         if tile_size is not None:
@@ -223,10 +246,9 @@ class ROIDataExtractor(object):
         else:
             tile_size = image_details['tile_size']
         bbox_coordinates = self._get_roi_bounding_box_coordinates(roi_segments)
-        bbox_tiles = self._get_bbox_tiles(bbox_coordinates, tile_size)
         max_zoom_level = self._get_max_zoom_level(image_details['image_height'], image_details['image_width'])
-        translated_roi, new_origin_coordinates = self._adapt_roi_to_region(roi_segments, bbox_tiles, tile_size)
-        region = self._extract_roi_region(bbox_tiles, image_details['base_url'], tile_size,
+        translated_roi, new_origin_coordinates = self._adapt_roi_to_region(roi_segments, bbox_coordinates)
+        region = self._extract_roi_region(bbox_coordinates, image_details['base_url'], tile_size,
                                           image_details['tile_overlap'], max_zoom_level)
         if draw_roi:
             self._draw_roi_on_image(region, translated_roi)
@@ -240,11 +262,11 @@ class ROIDataExtractor(object):
         pen = ImageDraw2.Pen(color='black', width=5)
         draw.line(points, pen)
 
-    def _get_new_origin(self, bbox_tiles, tile_size):
-        return (
-            bbox_tiles['up_left']['column'] * tile_size,
-            bbox_tiles['up_left']['row'] * tile_size
-        )
+    # def _get_new_origin(self, bbox_tiles, tile_size):
+    #     return (
+    #         bbox_tiles['up_left']['column'] * tile_size,
+    #         bbox_tiles['up_left']['row'] * tile_size
+    #     )
 
     def _adapt_roi_to_new_origin(self, roi_segments, new_origin_coordinates):
         translated_segments = []
@@ -257,11 +279,10 @@ class ROIDataExtractor(object):
             })
         return translated_segments
 
-    def _adapt_roi_to_region(self, roi_segments, bbox_tiles, tile_size):
-        new_origin_x , new_origin_y = self._get_new_origin(bbox_tiles, tile_size)
-        new_roi_segments = self._adapt_roi_to_new_origin(roi_segments,
-                                                         (new_origin_x, new_origin_y))
-        return new_roi_segments, (new_origin_x, new_origin_y)
+    def _adapt_roi_to_region(self, roi_segments, bbox_coordinates):
+        new_x, new_y = bbox_coordinates['up_left']
+        new_roi_segments = self._adapt_roi_to_new_origin(roi_segments, (new_x, new_y))
+        return new_roi_segments, (new_x, new_y)
 
     def _normalize_roi_path(self, roi_segments):
         return [(seg['point']['x'], seg['point']['y']) for seg in roi_segments]
@@ -273,13 +294,13 @@ class ROIDataExtractor(object):
         return {'width': width, 'height': height}
 
     def _export_core_data(self, core_info, core_img_resolution, new_origin_coordinates,
-                          output_folder, case_label, slide_label, reviewer, roi_label):
+                          output_folder, case_label, slide_label, reviewer, roi_label, img_out_file_name):
         self.logger.info('Saving core data in JSON format')
         output_folder = self._prepare_output_path(output_folder, case_label, slide_label, reviewer)
         file_name = '%s_%s.json' % (slide_label, roi_label)
         out_file = os.path.join(output_folder, file_name)
         core_data = {
-            'label': core_info['label'],
+            'image_file_name': img_out_file_name,
             'shape': self._normalize_roi_path(
                 self._adapt_roi_to_new_origin(core_info['segments'], new_origin_coordinates)
             ),
@@ -312,10 +333,10 @@ class ROIDataExtractor(object):
                 self.logger.info('Processing core %s', core['label'])
                 core_region, translated_roi, new_origin = self._extract_roi(core['segments'],
                                                                             image_details, tile_size, draw_roi)
-                self._save_region(core_region, out_folder, core['case'], core['slide'],
-                                  core['reviewer'], core['label'])
+                slide_file_name = self._save_region(core_region, out_folder, core['case'], core['slide'],
+                                                    core['reviewer'], core['label'])
                 self._export_core_data(core, core_region.size, new_origin, out_folder, core['case'],
-                                       core['slide'], core['reviewer'], core['label'])
+                                       core['slide'], core['reviewer'], core['label'], slide_file_name)
 
     def run(self, case, slide, out_folder, draw_roi, tile_size):
         self._login()
