@@ -50,7 +50,7 @@ class ROIDataExtractor(ProMortTool):
         return segments
 
     def _load_cores_infos(self, slide_label):
-        url = urljoin(self.promort_host, 'api/odin/%s/cores/' % slide_label)
+        url = urljoin(self.promort_host, 'api/odin/rois/%s/cores/' % slide_label)
         response = self.promort_client.get(url)
         if response.status_code == requests.codes.OK:
             cores_json = response.json()
