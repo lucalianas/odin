@@ -3,7 +3,7 @@ try:
 except ImportError:
     import json
 
-import os, sys, requests, math
+import os, requests, math
 from urlparse import urljoin
 from cStringIO import StringIO
 from PIL import Image, ImageDraw2
