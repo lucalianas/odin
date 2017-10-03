@@ -1,4 +1,4 @@
-import os, sys, requests, csv
+import requests, csv
 from urlparse import urljoin
 
 
@@ -14,7 +14,7 @@ class CasesOverallScoring(ProMortTool):
         url = urljoin(self.promort_host, 'api/cases/')
         response = self.promort_client.get(url)
         if response.status_code == requests.codes.OK:
-            return [c['id'] for c in response.json()]
+            return [(c['id'], c['laboratory']) for c in response.json()]
         return []
 
     def _get_case_overall_score(self, case_id):
@@ -30,12 +30,13 @@ class CasesOverallScoring(ProMortTool):
         if perm_ok:
             cases = self._get_cases()
             with open(out_file, 'w') as output_file:
-                writer = csv.DictWriter(output_file, ['case', 'primary_score', 'secondary_score'])
+                writer = csv.DictWriter(output_file, ['case', 'laboratory', 'primary_score', 'secondary_score'])
                 writer.writeheader()
-                for case in cases:
+                for case, lab in cases:
                     scores = self._get_case_overall_score(case)
                     for score in scores:
                         score['case'] = case
+                        score['laboratory'] = lab
                         writer.writerow(score)
         self._logout()
 
