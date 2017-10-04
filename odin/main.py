@@ -3,7 +3,8 @@ from importlib import import_module
 
 SUBMODULES_NAMES = [
     'extract_roi',
-    'extract_cores'
+    'extract_cores',
+    'get_cases_scoring'
 ]
 
 SUBMODULES = [import_module('%s.%s' % (__package__, n)) for n in SUBMODULES_NAMES]
