@@ -71,7 +71,6 @@ class ROIDataExtractor(ProMortTool):
         else:
             return []
 
-
     def _load_image_details(self, omero_id, is_mirax):
         if is_mirax:
             url = urljoin(self.ome_seadragon_host, 'mirax/deepzoom/get/%s.json' % omero_id)
