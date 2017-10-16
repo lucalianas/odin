@@ -1,7 +1,6 @@
 import requests, csv
 from urlparse import urljoin
 
-
 from promort_generic_tool import ProMortTool
 
 
