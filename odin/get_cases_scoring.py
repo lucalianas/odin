@@ -1,7 +1,6 @@
 import requests, csv
 from urlparse import urljoin
 
-
 from promort_generic_tool import ProMortTool
 
 
@@ -22,7 +21,7 @@ class CasesOverallScoring(ProMortTool):
         response = self.promort_client.get(url)
         if response.status_code == requests.codes.OK:
             return response.json().values()
-        return []
+        return None
 
     def run(self, out_file):
         self._login()
@@ -34,10 +33,11 @@ class CasesOverallScoring(ProMortTool):
                 writer.writeheader()
                 for case, lab in cases:
                     scores = self._get_case_overall_score(case)
-                    for score in scores:
-                        score['case'] = case
-                        score['laboratory'] = lab
-                        writer.writerow(score)
+                    if scores is not None:
+                        for score in scores:
+                            score['case'] = case
+                            score['laboratory'] = lab
+                            writer.writerow(score)
         self._logout()
 
 
