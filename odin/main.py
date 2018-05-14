@@ -5,7 +5,8 @@ SUBMODULES_NAMES = [
     'extract_roi',
     'extract_cores',
     'get_cases_scoring',
-    'reviews_report'
+    'reviews_report',
+    'extract_random_tiles'
 ]
 
 SUBMODULES = [import_module('%s.%s' % (__package__, n)) for n in SUBMODULES_NAMES]
