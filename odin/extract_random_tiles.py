@@ -6,8 +6,8 @@ except ImportError:
 from openslide import OpenSlide
 from openslide.deepzoom import DeepZoomGenerator
 
-import os, requests
-from uuid import  uuid4
+import os, requests, csv, shutil
+from uuid import uuid4
 from random import sample
 from urlparse import urljoin
 from cStringIO import StringIO
@@ -111,14 +111,79 @@ class RandomTilesExtractor(ProMortTool):
                 tiles.add((col, row))
         return tiles
 
-    def _save_tile(self, slide_id, output_folder, tile_img):
-        if not os.path.exists(os.path.join(output_folder, slide_id)):
-            os.makedirs(os.path.join(output_folder, slide_id))
+    def _save_tile(self, slide_id, roi_type, roi_id, output_folder, tile_size, tile_img):
         tile_uuid = uuid4().hex
-        with open(os.path.join(output_folder, slide_id, '%s.jpeg' % tile_uuid), 'w') as ofile:
+        with open(os.path.join(output_folder, slide_id, '%s_%s' % (roi_type, roi_id),
+                               str(tile_size), '%s.jpeg' % tile_uuid), 'w') as ofile:
             tile_img.save(ofile)
         return tile_uuid
 
+    def _get_slides_csv(self, output_dir):
+        fpath = os.path.join(output_dir, 'slides_list.csv')
+        csv_headers = ['slide_id', 'height', 'width']
+        known_slides = set()
+        try:
+            fsize = os.stat(fpath).st_size
+            if fsize > 0:
+                # file exists, read existing slides first
+                with open(fpath, 'r') as csvf:
+                    self.logger.debug('Loading known slides list')
+                    reader = csv.DictReader(csvf)
+                    for row in reader:
+                        known_slides.add(row['slide_id'])
+                f = open(fpath, 'a')
+                writer = csv.DictWriter(f, fieldnames=csv_headers)
+            else:
+                self.logger.debug('Empty file, initialize')
+                f = open(fpath, 'w')
+                writer = csv.DictWriter(f, fieldnames=csv_headers)
+                writer.writeheader()
+        except OSError:
+            self.logger.debug('There is no file, initialize')
+            f = open(fpath, 'w')
+            writer = csv.DictWriter(f, fieldnames=csv_headers)
+            writer.writeheader()
+        return writer, f, known_slides
+
+    def _get_tiles_csv(self, output_dir, slide_id, roi_type, roi_id, tile_size):
+        if not os.path.exists(os.path.join(output_dir, slide_id, '%s_%s' % (roi_type, roi_id), str(tile_size))):
+            os.makedirs(os.path.join(output_dir, slide_id, '%s_%s' % (roi_type, roi_id), str(tile_size)))
+        ofile = open(os.path.join(output_dir, slide_id, '%s_%s' % (roi_type, roi_id), str(tile_size), 'tiles.csv'), 'w')
+        csv_headers = ['slide_id', 'roi_type', 'roi_id', 'tile_uuid', 'tile_size', 'column', 'row', 'zoom_level']
+        writer = csv.DictWriter(ofile, fieldnames=csv_headers)
+        writer.writeheader()
+        return writer, ofile
+
+    def _register_slide_infos(self, output_dir, slide_id, slide_reader):
+        writer, fpointer, known_slides = self._get_slides_csv(output_dir)
+        if slide_id not in known_slides:
+            self.logger.debug('Adding slide %s infos', slide_id)
+            sdim = slide_reader.get_slide_dimensions()
+            writer.writerow({
+                'slide_id': slide_id,
+                'height': sdim['height'],
+                'width': sdim['width']
+            })
+        fpointer.close()
+
+    def _register_tile_infos(self, csv_writer, slide_id, roi_type, roi_id, tile_uuid,
+                             tile_size, column, row, zoom_level):
+        csv_writer.writerow({
+            'slide_id': slide_id,
+            'roi_type': roi_type,
+            'roi_id': roi_id,
+            'tile_uuid': tile_uuid,
+            'tile_size': tile_size,
+            'column': column,
+            'row': row,
+            'zoom_level': zoom_level
+        })
+
+    def _clean_out_path(self, output_path, slide_id, roi_type, roi_id, tile_size):
+        try:
+            shutil.rmtree(os.path.join(output_path, slide_id, '%s_%s' % (roi_type, roi_id), str(tile_size)))
+        except:
+            pass
 
     def run(self, images_folder, slide_id, roi_id, roi_type, tile_size, tiles_count, output_folder):
         self._login()
@@ -126,10 +191,13 @@ class RandomTilesExtractor(ProMortTool):
         file_exists = self._check_slide_file(images_folder, slide_id)
         out_folder_exists = self._check_output_folder(output_folder)
         if perm_ok and file_exists and out_folder_exists:
+            # preemptive deletion of output folder for given Slide and tile resolution (AKA no duplicates)
+            self._clean_out_path(output_folder, slide_id, roi_type, roi_id, tile_size)
             # right now force tile overlap to 0
             # TODO: add to argument parser tiles-overlap parameter
             slide_reader = DiskImageReader(os.path.join(images_folder, '%s.mrxs' % slide_id),
                                            tile_size, 1, self.logger)
+            self._register_slide_infos(output_folder, slide_id, slide_reader)
             roi_path = self._get_roi_path(slide_id, roi_id, roi_type)
             roi_bounds = slide_reader.get_roi_bounds(roi_path)
             tiles_list = self._get_tiles_list(roi_bounds)
@@ -138,10 +206,14 @@ class RandomTilesExtractor(ProMortTool):
             # avoid "sample larger than population" error
             if len(tiles_list) < tiles_count:
                 tiles_count = len(tiles_list)
+            tiles_writer, tiles_fp = self._get_tiles_csv(output_folder, slide_id, roi_type, roi_id, tile_size)
             for tile in sample(tiles_list, tiles_count):
                 self.logger.info('--- LOADING TILE %d::%d (zoom: %d) ---', tile[0], tile[1], max_zoom_level)
                 img = slide_reader.get_tile(max_zoom_level, tile[0], tile[1])
-                tile_uuid = self._save_tile(slide_id, output_folder, img)
+                tile_uuid = self._save_tile(slide_id, roi_type, roi_id, output_folder, tile_size, img)
+                self._register_tile_infos(tiles_writer, slide_id, roi_type, roi_id, tile_uuid, tile_size,
+                                          tile[0], tile[1], max_zoom_level)
+            tiles_fp.close()
         else:
             if not file_exists:
                 self.logger.critcal('File %s/%s.mrxs does not exist', images_folder, slide_id)
