@@ -1,0 +1,2 @@
+class DZILevelOutOfBounds(Exception):
+    pass
