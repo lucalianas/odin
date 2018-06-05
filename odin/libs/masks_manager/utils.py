@@ -14,3 +14,13 @@ def binary_mask_to_rgba(mask, red, green, blue, alpha=0.5):
     rgba_mask = np.empty((width, height, 4), dtype=np.uint8)
     rgba_mask[:, :, :] = mask[:, :, np.newaxis]
     return Image.fromarray(np.uint8(rgba_mask * [red, green, blue, alpha*255]), mode='RGBA')
+
+
+def add_mask(mask_1, mask_2):
+    result = np.logical_or(mask_1, mask_2)
+    return np.uint8(result)
+
+
+def remove_mask(mask_1, mask_2):
+    result = np.logical_and(mask_1, np.logical_not(mask_2))
+    return np.uint8(result)
