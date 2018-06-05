@@ -1,2 +1,4 @@
 Pillow
 requests
+openslide-python
+opencv-python
