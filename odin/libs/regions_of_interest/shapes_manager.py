@@ -5,7 +5,7 @@ except ImportError:
 
 from random import randint
 from requests import codes as rc
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon, Point, MultiPolygon
 from shapely.affinity import scale
 import numpy as np
 import cv2
@@ -51,27 +51,6 @@ class Shape(object):
         scaling = pow(2, scale_level)
         return scale(self.polygon, xfact=scaling, yfact=scaling, origin=(0, 0))
 
-    # def get_intersection_mask(self, box, scale_level=0):
-    #     if scale_level < 0:
-    #         polygon = self._rescale_polygon(scale_level)
-    #     else:
-    #         polygon = self.polygon
-    #     box_polygon = self._box_to_polygon(box)
-    #     box_height = int(box['down_left'][1] - box['up_left'][1])
-    #     box_width = int(box['down_right'][0] - box['down_left'][0])
-    #     if not polygon.intersects(box_polygon):
-    #         return np.zeros((box_width, box_height), dtype=np.uint8)
-    #     else:
-    #         if polygon.contains(box_polygon):
-    #             return np.ones((box_width, box_height), dtype=np.uint8)
-    #         else:
-    #             mask = np.zeros((box_width, box_height), dtype=np.uint8)
-    #             for x in xrange(int(box['up_left'][0]), int(box['up_right'][0])):
-    #                 for y in xrange(int(box['up_left'][1]), int(box['down_right'][1])):
-    #                     if polygon.contains(Point(x, y)):
-    #                         mask[y % int(box['up_left'][1])][x % int(box['up_left'][0])] = 1
-    #             return mask
-
     def get_intersection_mask(self, box, scale_level=0):
         if scale_level < 0:
             polygon = self._rescale_polygon(scale_level)
@@ -87,9 +66,15 @@ class Shape(object):
                 return np.ones((box_width, box_height), dtype=np.uint8)
             else:
                 mask = np.zeros((box_width, box_height), dtype=np.uint8)
-                intersection = polygon.intersection(box_polygon).exterior.coords[:]
-                intersection = [(int(x - box['up_left'][0]), int(y - box['up_left'][1])) for x, y in intersection]
-                cv2.fillPoly(mask, np.array([intersection,]), 1)
+                intersection = polygon.intersection(box_polygon)
+                if type(intersection) is MultiPolygon:
+                    intersection_paths = list(intersection)
+                else:
+                    intersection_paths = [intersection]
+                for path in intersection_paths:
+                    ipath = path.exterior.coords[:]
+                    ipath = [(int(x - box['up_left'][0]), int(y - box['up_left'][1])) for x, y in ipath]
+                    cv2.fillPoly(mask, np.array([ipath,]), 1)
                 return mask
 
     def get_difference_mask(self, box, scale_level=0):
