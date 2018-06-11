@@ -39,9 +39,7 @@ class Shape(object):
         return point
 
     def get_random_points(self, points_count):
-        points = set()
-        while len(points) < points_count:
-            points.add(self.get_random_point())
+        points = [self.get_random_point() for _ in xrange(points_count)]
         return points
 
     def _box_to_polygon(self, box):
