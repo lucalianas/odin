@@ -2,11 +2,12 @@ import sys, argparse, logging
 from importlib import import_module
 
 SUBMODULES_NAMES = [
-    'extract_roi',
-    'extract_cores',
-    'get_cases_scoring',
-    'reviews_report',
-    'extract_random_tiles'
+    # 'extract_roi',
+    # 'extract_cores',
+    # 'get_cases_scoring',
+    # 'reviews_report',
+    # 'extract_random_tiles',
+    'extract_patches'
 ]
 
 SUBMODULES = [import_module('%s.%s' % (__package__, n)) for n in SUBMODULES_NAMES]
