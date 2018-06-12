@@ -3,6 +3,7 @@ import os
 from itertools import chain
 from uuid import uuid4
 import numpy as np
+from shapely.errors import TopologicalError
 
 from odin.libs.promort.client import ProMortClient
 from odin.libs.promort.errors import ProMortAuthenticationError, UserNotAllowed
@@ -52,31 +53,35 @@ class RandomPatchesExtractor(object):
     def _extract_patch(self, point, scaling, extractor):
         return extractor.get_patch((point.x, point.y), scaling)
 
-    def _get_tissue_masks(self, patch_coordinates, core, scaling):
-        tissue_mask = core.get_intersection_mask(patch_coordinates, scaling)
-        not_tissue_mask = core.get_difference_mask(patch_coordinates, scaling)
+    def _get_tissue_masks(self, patch_coordinates, core, scaling, tolerance):
+        tissue_mask = core.get_intersection_mask(patch_coordinates, scaling, tolerance)
+        not_tissue_mask = core.get_difference_mask(patch_coordinates, scaling, tolerance)
         return tissue_mask, not_tissue_mask
 
-    def _get_regions_mask(self, patch_coordinates, regions, tile_size, scaling):
+    def _get_regions_mask(self, patch_coordinates, regions, tile_size, scaling, tolerance):
         mask = np.zeros((tile_size, tile_size), np.uint8)
         for r in regions:
-            m = r.get_intersection_mask(patch_coordinates, scaling)
+            m = r.get_intersection_mask(patch_coordinates, scaling, tolerance)
             mask = mmu.add_mask(mask, m)
         return mask
 
-    def _get_positive_regions_mask(self, patch_coordinates, positive_regions, tile_size, scaling):
-        return self._get_regions_mask(patch_coordinates, positive_regions, tile_size, scaling)
+    def _get_positive_regions_mask(self, patch_coordinates, positive_regions, tile_size, scaling, tolerance):
+        return self._get_regions_mask(patch_coordinates, positive_regions, tile_size, scaling, tolerance)
 
-    def _get_negative_regions_mask(self, patch_coordinates, negative_regions, tile_size, scaling):
-        return self._get_regions_mask(patch_coordinates, negative_regions, tile_size, scaling)
+    def _get_negative_regions_mask(self, patch_coordinates, negative_regions, tile_size, scaling, tolerance):
+        return self._get_regions_mask(patch_coordinates, negative_regions, tile_size, scaling, tolerance)
 
-    def _build_masks(self, patch_coordinates, core, positive_regions, negative_regions, tile_size, scaling):
-        tissue_mask, not_tissue_mask = self._get_tissue_masks(patch_coordinates, core, scaling)
+    def _build_masks(self, patch_coordinates, core, positive_regions, negative_regions, tile_size,
+                     scaling, tolerance):
+        tissue_mask, not_tissue_mask = self._get_tissue_masks(patch_coordinates, core,
+                                                              scaling, tolerance)
         return {
             'tissue': tissue_mask,
             'not_tissue': not_tissue_mask,
-            'tumor': self._get_positive_regions_mask(patch_coordinates, positive_regions, tile_size, scaling),
-            'not_tumor': self._get_negative_regions_mask(patch_coordinates, negative_regions, tile_size, scaling)
+            'tumor': self._get_positive_regions_mask(patch_coordinates, positive_regions,
+                                                     tile_size, scaling, tolerance),
+            'not_tumor': self._get_negative_regions_mask(patch_coordinates, negative_regions,
+                                                         tile_size, scaling, tolerance)
         }
 
     def _serialize_patch(self, patch_img, slide_id, output_folder):
@@ -98,7 +103,7 @@ class RandomPatchesExtractor(object):
         patch_uuid = self._serialize_patch(patch, slide_id, output_folder)
         self._serialize_masks(masks, patch_uuid, slide_id, output_folder)
 
-    def run(self, focus_regions_list, slides_folder, tile_size, patches_count, scaling, output_folder):
+    def run(self, focus_regions_list, slides_folder, tile_size, patches_count, scaling, tolerance, output_folder):
         try:
             self.promort_client.login()
             dependencies_tree, positive_regions, negative_regions = self._build_data_mappings(focus_regions_list)
@@ -114,13 +119,20 @@ class RandomPatchesExtractor(object):
                     self.logger.info('Loaded %d focus regions', len(focus_regions_shapes))
                     for focus_region in chain(*focus_regions_shapes.values()):
                         for point in focus_region.get_random_points(patches_count):
-                            try:
-                                patch, coordinates = self._extract_patch(point, scaling, patches_extractor)
-                                masks = self._build_masks(coordinates, core_shape, focus_regions_shapes['positive'],
-                                                          focus_regions_shapes['negative'], tile_size, scaling)
-                                self._serialize(patch, masks, slide, output_folder)
-                            except:
-                                self.logger.error('Unable to process point %r for slide %s', point, slide)
+                            processed = False
+                            tolerance_value = 0.0
+                            while not processed:
+                                try:
+                                    patch, coordinates = self._extract_patch(point, scaling, patches_extractor)
+                                    masks = self._build_masks(coordinates, core_shape, focus_regions_shapes['positive'],
+                                                              focus_regions_shapes['negative'], tile_size, scaling,
+                                                              tolerance_value)
+                                    self._serialize(patch, masks, slide, output_folder)
+                                    processed = True
+                                except TopologicalError:
+                                    tolerance_value += tolerance
+                                    self.logger.debug('Intersection failed, increasing tolerance to %f',
+                                                      tolerance_value)
             self.promort_client.logout()
         except UserNotAllowed, e:
             self.logger.error('UserNotAllowedError: %r', e.message)
@@ -137,7 +149,7 @@ add doc
 def implementation(host, user, passwd, logger, args):
     patches_extractor = RandomPatchesExtractor(host, user, passwd, logger)
     patches_extractor.run(args.focus_regions_list, args.slides_folder, args.tile_size, args.patches_count,
-                          args.scaling, args.output_folder)
+                          args.scaling, args.tolerance, args.output_folder)
 
 
 def make_parser(parser):
@@ -148,6 +160,8 @@ def make_parser(parser):
     parser.add_argument('--patches-count', type=int, required=True,
                         help='the number of patches that will be extracted for each focus region')
     parser.add_argument('--scaling', type=int, default=0, help='scaling level expressed as a negative number')
+    parser.add_argument('--simplify-tolerance', dest='tolerance', type=float, default=10.,
+                        help='the tolerance step that will be used to simplify shapes that fail in the intersection')
     parser.add_argument('--output-folder', type=str, required=True, help='output folder for patches and masks')
 
 
