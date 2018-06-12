@@ -49,11 +49,13 @@ class Shape(object):
         scaling = pow(2, scale_level)
         return scale(self.polygon, xfact=scaling, yfact=scaling, origin=(0, 0))
 
-    def get_intersection_mask(self, box, scale_level=0):
+    def get_intersection_mask(self, box, scale_level=0, tolerance=0):
         if scale_level < 0:
             polygon = self._rescale_polygon(scale_level)
         else:
             polygon = self.polygon
+        if tolerance > 0:
+            polygon = polygon.simplify(tolerance, preserve_topology=False)
         box_polygon = self._box_to_polygon(box)
         box_height = int(box['down_left'][1] - box['up_left'][1])
         box_width = int(box['down_right'][0] - box['down_left'][0])
@@ -75,8 +77,8 @@ class Shape(object):
                     cv2.fillPoly(mask, np.array([ipath,]), 1)
                 return mask
 
-    def get_difference_mask(self, box, scale_level=0):
-        return 1 - self.get_intersection_mask(box, scale_level)
+    def get_difference_mask(self, box, scale_level=0, tolerance=0):
+        return 1 - self.get_intersection_mask(box, scale_level, tolerance)
 
 
 class ShapesManager(object):
