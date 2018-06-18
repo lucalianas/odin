@@ -1,32 +1,32 @@
 import requests, csv
-from urlparse import urljoin
 
-from promort_generic_tool import ProMortTool
+from odin.libs.promort.client import ProMortClient
+from odin.libs.promort.errors import ProMortAuthenticationError, UserNotAllowed
 
 
-class CasesOverallScoring(ProMortTool):
+class CasesOverallScoring(object):
 
     def __init__(self, host, user, passwd, logger):
-        super(CasesOverallScoring, self).__init__(host, user, passwd, logger)
+        self.promort_client = ProMortClient(host, user, passwd)
+        self.logger = logger
 
     def _get_cases(self):
-        url = urljoin(self.promort_host, 'api/cases/')
+        url = 'api/cases/'
         response = self.promort_client.get(url)
         if response.status_code == requests.codes.OK:
             return [(c['id'], c['laboratory']) for c in response.json()]
         return []
 
     def _get_case_overall_score(self, case_id):
-        url = urljoin(self.promort_host, 'api/odin/reviews/%s/score/' % case_id)
+        url = 'api/odin/reviews/%s/score/' % case_id
         response = self.promort_client.get(url)
         if response.status_code == requests.codes.OK:
             return response.json().values()
         return None
 
     def run(self, out_file):
-        self._login()
-        perm_ok = self._check_odin_permissions()
-        if perm_ok:
+        self.promort_client.login()
+        try:
             cases = self._get_cases()
             with open(out_file, 'w') as output_file:
                 writer = csv.DictWriter(output_file, ['case', 'laboratory', 'primary_score', 'secondary_score'])
@@ -38,7 +38,12 @@ class CasesOverallScoring(ProMortTool):
                             score['case'] = case
                             score['laboratory'] = lab
                             writer.writerow(score)
-        self._logout()
+            self.promort_client.logout()
+        except UserNotAllowed, e:
+            self.logger.error(e.message)
+            self.promort_client.logout()
+        except ProMortAuthenticationError, e:
+            self.logger.error(e.message)
 
 
 cos_help_doc = """
@@ -58,16 +63,15 @@ class DetailedCaseOverallScoring(CasesOverallScoring):
         super(DetailedCaseOverallScoring, self).__init__(host, user, passwd, logger)
 
     def _get_detailed_score(self, case_id):
-        url = urljoin(self.promort_host, 'api/odin/reviews/%s/score/details/' % case_id)
+        url = 'api/odin/reviews/%s/score/details/' % case_id
         response = self.promort_client.get(url)
         if response.status_code == requests.codes.OK:
             return response.json().values()
         return []
 
     def run(self, out_file):
-        self._login()
-        perm_ok = self._check_odin_permissions()
-        if perm_ok:
+        self.promort_client.login()
+        try:
             cases = self._get_cases()
             with open(out_file, 'w') as output_file:
                 writer = csv.DictWriter(output_file,
@@ -86,7 +90,11 @@ class DetailedCaseOverallScoring(CasesOverallScoring):
                                     'primary_gleason': core['primary_gleason_score'],
                                     'secondary_gleason': core['secondary_gleason_score']
                                 })
-        self._logout()
+        except UserNotAllowed, e:
+            self.logger.error(e.message)
+            self.promort_client.logout()
+        except ProMortAuthenticationError, e:
+            self.logger.error(e)
 
 
 dcos_help_doc = """
