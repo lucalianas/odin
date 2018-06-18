@@ -1,0 +1,2 @@
+class InvalidScaleFactor(Exception):
+    pass
