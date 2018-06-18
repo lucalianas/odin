@@ -9,6 +9,7 @@ from odin.libs.promort.client import ProMortClient
 from odin.libs.promort.errors import ProMortAuthenticationError, UserNotAllowed
 from odin.libs.regions_of_interest.shapes_manager import ShapesManager
 from odin.libs.deepzoom.deepzoom_wrapper import DeepZoomWrapper
+from odin.libs.deepzoom.errors import DZIBadTileAddress
 from odin.libs.patches.patches_extractor import PatchesExtractor
 from odin.libs.patches.utils import extract_white_mask
 from odin.libs.masks_manager import utils as mmu
@@ -136,6 +137,8 @@ class RandomPatchesExtractor(object):
                                     tolerance_value += tolerance
                                     self.logger.debug('Intersection failed, increasing tolerance to %f',
                                                       tolerance_value)
+                                except DZIBadTileAddress, e:
+                                    self.logger.error(e.message)
             self.promort_client.logout()
         except UserNotAllowed, e:
             self.logger.error('UserNotAllowedError: %r', e.message)

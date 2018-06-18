@@ -4,7 +4,7 @@ from openslide.deepzoom import DeepZoomGenerator
 from cStringIO import StringIO
 from PIL import Image
 
-from odin.libs.deepzoom.errors import DZILevelOutOfBounds
+from odin.libs.deepzoom.errors import DZILevelOutOfBounds, DZIBadTileAddress
 
 
 class DeepZoomWrapper(object):
@@ -72,7 +72,10 @@ class DeepZoomWrapper(object):
 
     def get_tile(self, level, column, row, format='jpeg', quality=90):
         self._check_level(level)
-        tile = self.dzi_wrapper.get_tile(level-1, (column, row))
+        try:
+            tile = self.dzi_wrapper.get_tile(level-1, (column, row))
+        except ValueError:
+            raise DZIBadTileAddress('Invalid address (%d, %d) for level %d' % (column, row, level - 1))
         tile_buffer = StringIO()
         tile.save(tile_buffer, format=format, quality=quality)
         return Image.open(tile_buffer)
