@@ -139,6 +139,7 @@ class RandomPatchesExtractor(object):
                                                       tolerance_value)
                                 except DZIBadTileAddress, e:
                                     self.logger.error(e.message)
+                                    processed = True
             self.promort_client.logout()
         except UserNotAllowed, e:
             self.logger.error('UserNotAllowedError: %r', e.message)
