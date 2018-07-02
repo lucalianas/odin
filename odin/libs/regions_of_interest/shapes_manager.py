@@ -3,6 +3,8 @@ try:
 except ImportError:
     import json
 
+from errors import InvalidPolygonError
+
 from random import randint
 from requests import codes as rc
 from shapely.geometry import Polygon, Point, MultiPolygon
@@ -18,12 +20,15 @@ class Shape(object):
 
     def get_bounds(self):
         bounds = self.polygon.bounds
-        return {
-            'x_min': bounds[0],
-            'y_min': bounds[1],
-            'x_max': bounds[2],
-            'y_max': bounds[3]
-        }
+        try:
+            return {
+                'x_min': bounds[0],
+                'y_min': bounds[1],
+                'x_max': bounds[2],
+                'y_max': bounds[3]
+            }
+        except IndexError:
+            raise InvalidPolygonError()
 
     def get_random_point(self):
         bounds = self.get_bounds()
