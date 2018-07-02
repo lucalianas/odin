@@ -1,0 +1,2 @@
+class InvalidPolygonError(Exception):
+    pass
