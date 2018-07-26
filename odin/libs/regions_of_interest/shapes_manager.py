@@ -18,8 +18,8 @@ class Shape(object):
     def __init__(self, roi_segments):
         self.polygon = Polygon([(seg['point']['x'], seg['point']['y']) for seg in roi_segments])
 
-    def get_bounds(self):
-        bounds = self.polygon.bounds
+    def get_bounds(self, polygon):
+        bounds = polygon.bounds
         try:
             return {
                 'x_min': bounds[0],
@@ -30,21 +30,34 @@ class Shape(object):
         except IndexError:
             raise InvalidPolygonError()
 
-    def get_random_point(self):
-        bounds = self.get_bounds()
+    def get_random_point(self, scale_level=0):
+        if scale_level == 0:
+            scaled_polygon = self.polygon
+        else:
+            scaled_polygon = self._rescale_polygon(scale_level)
+        bounds = self.get_bounds(scaled_polygon)
         point = Point(
             randint(int(bounds['x_min']), int(bounds['x_max'])),
             randint(int(bounds['y_min']), int(bounds['y_max']))
         )
-        while not self.polygon.contains(point):
+        while not scaled_polygon.contains(point):
             point = Point(
                 randint(int(bounds['x_min']), int(bounds['x_max'])),
                 randint(int(bounds['y_min']), int(bounds['y_max']))
             )
         return point
 
-    def get_random_points(self, points_count):
-        points = [self.get_random_point() for _ in xrange(points_count)]
+    def get_random_points(self, points_count, scale_level=0, allow_duplicated=True):
+        if allow_duplicated:
+            points = [self.get_random_point(scale_level) for _ in xrange(points_count)]
+        else:
+            p_coords = set()
+            points = list()
+            while len(p_coords) < points_count:
+                p = self.get_random_point(scale_level)
+                if p.coords[:][0] not in p_coords:
+                    p_coords.add(p.coords[:][0])
+                    points.append(p)
         return points
 
     def _box_to_polygon(self, box):

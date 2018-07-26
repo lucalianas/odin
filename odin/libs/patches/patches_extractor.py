@@ -16,9 +16,7 @@ class PatchesExtractor(object):
         else:
             return max_level + scale_factor
 
-    def _get_patch_coordinates(self, center, scale_factor):
-        center = self.slide_wrapper.scale_point_to_level(center[0], center[1],
-                                                         self._get_scale_level(scale_factor))
+    def _get_patch_coordinates(self, center):
         tile_size = self.slide_wrapper.get_tile_size()
         upper_left_x = center[0] - tile_size/2
         upper_left_y = center[1] - tile_size/2
@@ -106,7 +104,7 @@ class PatchesExtractor(object):
         return cropped_image
 
     def get_patch(self, patch_center, scale_factor=0):
-        patch_vertices = self._get_patch_coordinates(patch_center, scale_factor)
+        patch_vertices = self._get_patch_coordinates(patch_center)
         patch_grid = self._get_patch_grid(patch_vertices, scale_factor)
         context_image = self._get_context_img(patch_grid)
         return self._extract_patch(context_image, patch_vertices), patch_vertices
