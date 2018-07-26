@@ -131,12 +131,13 @@ class RandomPatchesExtractor(object):
                     self.logger.info('Loading core %s', core)
                     focus_regions_shapes = self._load_focus_regions(focus_regions, slide,
                                                                     positive_regions, negative_regions)
-                    self.logger.info('Loaded %d positives shapes and %d negatives',
+                    self.logger.info('Loaded %d positive shapes and %d negative',
                                      len(focus_regions_shapes['positive']),
                                      len(focus_regions_shapes['negative']))
                     for focus_region in chain(*focus_regions_shapes.values()):
                         try:
-                            for point in focus_region[0].get_random_points(patches_count):
+                            for point in focus_region[0].get_random_points(patches_count, scaling,
+                                                                           allow_duplicated=False):
                                 processed = False
                                 tolerance_value = 0.0
                                 while not processed:
@@ -167,7 +168,7 @@ class RandomPatchesExtractor(object):
             self.logger.error('UserNotAllowedError: %r', e.message)
             self.promort_client.logout()
         except ProMortAuthenticationError, e:
-            self.logger.error('AuthenticationError: %r', e.message)
+            self.logger.error('ProMortAuthenticationError: %r', e.message)
 
 
 doc = """
