@@ -3,6 +3,7 @@ import cv2
 
 from odin.libs.masks_manager.utils import binary_mask_to_rgb, binary_mask_to_rgba
 
+
 def extract_white_mask(patch_img, lower_bound):
     cv2_img = cv2.cvtColor(np.array(patch_img), cv2.COLOR_RGB2BGR)
     white_mask = cv2.inRange(cv2_img, np.array([lower_bound, lower_bound, lower_bound], dtype=np.uint8),

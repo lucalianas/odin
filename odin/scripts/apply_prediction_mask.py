@@ -1,11 +1,11 @@
-import os, sys, argparse, logging
+import os, sys, argparse, logging, cv2
 import numpy as np
 from PIL import Image
 
 sys.path.append('../../')
 
 from odin.libs.masks_manager import utils as mask_utils
-from odin.libs.patches.utils import apply_mask
+from odin.libs.patches.utils import apply_mask, apply_contours
 
 LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
 
@@ -53,20 +53,41 @@ class PredictionMaskApplier(object):
         self.logger.info('Mapeed %d patches to mask' % len(patches_map))
         return patches_map
 
-    def _apply_mask(self, uuid, patch, mask, output_dir, mask_color, mask_alpha=0.5):
-        patch_img = Image.open(patch)
-        mask_np = np.load(mask)
-        patch_img = apply_mask(patch_img, mask_np['prediction'],
-                               mask_color, mask_alpha)
-        patch_img.save(os.path.join(output_dir, '%s.jpeg' % uuid))
+    def _load_patch(self, patch_path):
+        return cv2.imread(patch_path)
 
-    def run(self, masks_dir, patches_dir, output_dir, mask_color, mask_alpha):
+    def _cv2_img_to_pil(self, patch_img):
+        return Image.fromarray(patch_img)
+
+    def _load_mask(self, mask_path, mask_label):
+        return np.load(mask_path)[mask_label]
+
+    def _apply_mask(self, patch_img, mask, color, alpha):
+        patch_img = apply_mask(patch_img, mask, color, alpha)
+        return patch_img
+
+    def _apply_contours(self, patch_img, mask, color, thickness):
+        contours = mask_utils.extract_contours(mask)
+        patch_img = apply_contours(patch_img, contours, color, thickness)
+        return patch_img
+
+    def _save_patch(self, uuid, patch, output_dir):
+        patch.save(os.path.join(output_dir, '%s.jpeg' % uuid))
+
+    def run(self, masks_dir, patches_dir, output_dir, mask_color, mask_alpha,
+            contours_color, contours_thickness):
         self.logger.info('Staring job')
         patches_map = self._build_patches_map(masks_dir, patches_dir)
         for k, v in patches_map.iteritems():
             self.logger.info('Processing patch %s', k)
-            self._apply_mask(k, v['patch_file'], v['mask_file'], output_dir,
-                             mask_color, mask_alpha)
+            # using OpenCV image
+            img = self._load_patch(v['patch_file'])
+            mask = self._load_mask(v['mask_file'], 'prediction')
+            img = self._apply_contours(img, mask, contours_color, contours_thickness)
+            # using PIL image
+            img = self._cv2_img_to_pil(img)
+            img = self._apply_mask(img, mask, mask_color, mask_alpha)
+            self._save_patch(k, img, output_dir)
         self.logger.info('Job completed')
 
 
@@ -75,9 +96,12 @@ def get_parser():
     parser.add_argument('--masks-dir', type=str, required=True, help='Folder containing the .npz masks')
     parser.add_argument('--patches-dir', type=str, required=True, help='Folder containing the .jpeg patches')
     parser.add_argument('--output-dir', type=str, required=True, help='output folder')
-    parser.add_argument('--mask-color', type=int, nargs='+', default=[255, 0, 0],
+    parser.add_argument('--mask-color', type=int, nargs='+', default=[0, 255, 0],
                         help='mask color as a RGB triplet (i.e. 0 255 0 for green)')
     parser.add_argument('--mask-alpha', type=float, default=0.3, help='value of alpha channel of the mask')
+    parser.add_argument('--contours-color', type=int, nargs='+', default=[85, 107, 47],
+                        help='mask contours color as a RGB triplet (i.e. 255 0 0  for red)')
+    parser.add_argument('--contours-thickness', type=int, default=2, help='mask contours thickness')
     parser.add_argument('--log-level', type=str, default='INFO', help='log level (default=INFO)')
     parser.add_argument('--log-file', type=str, default=None, help='log file (default=stderr)')
     return parser
@@ -88,7 +112,7 @@ def main(argv):
     args = parser.parse_args(argv)
     prediction_mask_applier = PredictionMaskApplier()
     prediction_mask_applier.run(args.masks_dir, args.patches_dir, args.output_dir, tuple(args.mask_color),
-                                args.mask_alpha)
+                                args.mask_alpha, args.contours_color, args.contours_thickness)
 
 
 if __name__ == '__main__':
