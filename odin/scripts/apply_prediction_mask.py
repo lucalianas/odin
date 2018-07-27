@@ -5,6 +5,7 @@ from PIL import Image
 sys.path.append('../../')
 
 from odin.libs.masks_manager import utils as mask_utils
+from odin.libs.patches.utils import apply_mask
 
 LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
 
@@ -55,11 +56,9 @@ class PredictionMaskApplier(object):
     def _apply_mask(self, uuid, patch, mask, output_dir, mask_color, mask_alpha=0.5):
         patch_img = Image.open(patch)
         mask_np = np.load(mask)
-        rgba_mask = mask_utils.binary_mask_to_rgba(mask_np['prediction'],
-                                                   *mask_color, alpha=mask_alpha)
-        patch_img.paste(rgba_mask, (0,0), rgba_mask)
-        out_file = os.path.join(output_dir, '%s.jpeg' % uuid)
-        patch_img.save(out_file)
+        patch_img = apply_mask(patch_img, mask_np['prediction'],
+                               mask_color, mask_alpha)
+        patch_img.save(os.path.join(output_dir, '%s.jpeg' % uuid))
 
     def run(self, masks_dir, patches_dir, output_dir, mask_color, mask_alpha):
         self.logger.info('Staring job')
