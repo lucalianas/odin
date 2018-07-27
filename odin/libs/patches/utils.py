@@ -18,3 +18,8 @@ def apply_mask(patch_img, mask, mask_color, mask_alpha=None):
         mask_img = binary_mask_to_rgba(mask, *mask_color, alpha=mask_alpha)
     patch_copy.paste(mask_img, (0, 0), mask_img)
     return patch_copy
+
+
+def apply_contours(patch_img, contours, color, thickness):
+    patch_copy = patch_img.copy()
+    return cv2.drawContours(patch_copy, contours, -1, color, thickness)
