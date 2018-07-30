@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 from PIL import Image
 
 
@@ -24,3 +25,9 @@ def add_mask(mask_1, mask_2):
 def remove_mask(mask_1, mask_2):
     result = np.logical_and(mask_1, np.logical_not(mask_2))
     return np.uint8(result)
+
+
+def extract_contours(mask):
+    _, contours, _ = cv2.findContours(mask, mode=cv2.RETR_EXTERNAL,
+                                      method=cv2.CHAIN_APPROX_SIMPLE)
+    return contours
