@@ -74,8 +74,8 @@ class PredictionMaskApplier(object):
     def _save_patch(self, uuid, patch, output_dir):
         patch.save(os.path.join(output_dir, '%s.jpeg' % uuid))
 
-    def run(self, masks_dir, patches_dir, output_dir, mask_color, mask_alpha,
-            contours_color, contours_thickness):
+    def run(self, masks_dir, patches_dir, output_dir, no_fill, fill_color, fill_alpha,
+            no_contours, contours_color, contours_thickness):
         self.logger.info('Staring job')
         patches_map = self._build_patches_map(masks_dir, patches_dir)
         for k, v in patches_map.iteritems():
@@ -83,10 +83,12 @@ class PredictionMaskApplier(object):
             # using OpenCV image
             img = self._load_patch(v['patch_file'])
             mask = self._load_mask(v['mask_file'], 'prediction')
-            img = self._apply_contours(img, mask, contours_color, contours_thickness)
+            if not no_contours:
+                img = self._apply_contours(img, mask, contours_color, contours_thickness)
             # using PIL image
             img = self._cv2_img_to_pil(img)
-            img = self._apply_mask(img, mask, mask_color, mask_alpha)
+            if not no_fill:
+                img = self._apply_mask(img, mask, fill_color, fill_alpha)
             self._save_patch(k, img, output_dir)
         self.logger.info('Job completed')
 
@@ -96,9 +98,11 @@ def get_parser():
     parser.add_argument('--masks-dir', type=str, required=True, help='Folder containing the .npz masks')
     parser.add_argument('--patches-dir', type=str, required=True, help='Folder containing the .jpeg patches')
     parser.add_argument('--output-dir', type=str, required=True, help='output folder')
-    parser.add_argument('--mask-color', type=int, nargs='+', default=[0, 255, 0],
+    parser.add_argument('--no-fill', action='store_true', required=False, help='don\'t fill the mask')
+    parser.add_argument('--fill-color', type=int, nargs='+', default=[0, 255, 0],
                         help='mask color as a RGB triplet (i.e. 0 255 0 for green)')
-    parser.add_argument('--mask-alpha', type=float, default=0.3, help='value of alpha channel of the mask')
+    parser.add_argument('--fill-alpha', type=float, default=0.3, help='value of alpha channel of the mask')
+    parser.add_argument('--no-contours', action='store_true', required=False, help='don\'t print mask contours')
     parser.add_argument('--contours-color', type=int, nargs='+', default=[85, 107, 47],
                         help='mask contours color as a RGB triplet (i.e. 255 0 0  for red)')
     parser.add_argument('--contours-thickness', type=int, default=2, help='mask contours thickness')
@@ -110,9 +114,11 @@ def get_parser():
 def main(argv):
     parser = get_parser()
     args = parser.parse_args(argv)
+    if args.no_fill and args.no_contours:
+        sys.exit('Nothing to do, exit')
     prediction_mask_applier = PredictionMaskApplier()
-    prediction_mask_applier.run(args.masks_dir, args.patches_dir, args.output_dir, tuple(args.mask_color),
-                                args.mask_alpha, args.contours_color, args.contours_thickness)
+    prediction_mask_applier.run(args.masks_dir, args.patches_dir, args.output_dir, args.no_fill, tuple(args.fill_color),
+                                args.fill_alpha, args.no_contours, args.contours_color, args.contours_thickness)
 
 
 if __name__ == '__main__':
