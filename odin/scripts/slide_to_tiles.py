@@ -1,5 +1,6 @@
 import os, sys, argparse, logging
 import numpy as np
+from PIL import Image
 
 # TODO: install.py for odin lib and remove this abomination
 sys.path.append('../../')
@@ -14,8 +15,9 @@ LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
 class TilesExtractor(object):
 
     def __init__(self, slide_path, tile_size, log_level='INFO', log_file=None):
+        self.tile_size = tile_size
         try:
-            self.dzi_wrapper = DeepZoomWrapper(slide_path, tile_size)
+            self.dzi_wrapper = DeepZoomWrapper(slide_path, self.tile_size)
         except MissingFileError:
             sys.exit('%s is not a valid file' % slide_path)
         except UnsupportedFormatError:
@@ -48,6 +50,11 @@ class TilesExtractor(object):
         logger.addHandler(handler)
         return logger
 
+    def _complete_tile(self, tile):
+        white_img = Image.new('RGB', (self.tile_size, self.tile_size), (255, 255, 255))
+        white_img.paste(tile, (0, 0))
+        return white_img
+
     def _accept_tile(self, tile, max_white_percentage):
         white_mask = extract_white_mask(tile, 230)
         white_percentage = white_mask.sum() / np.prod(white_mask.shape)
@@ -55,6 +62,7 @@ class TilesExtractor(object):
 
     def _get_tile(self, zoom_level, column, row, max_white_percentage):
         tile = self.dzi_wrapper.get_tile(zoom_level, column, row)
+        tile = self._complete_tile(tile)
         if self._accept_tile(tile, max_white_percentage):
             return tile
         else:
