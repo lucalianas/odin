@@ -2,6 +2,7 @@ import os, sys, argparse, logging, cv2
 import numpy as np
 from PIL import Image
 
+# TODO: install.py for odin lib and remove this abomination
 sys.path.append('../../')
 
 from odin.libs.masks_manager import utils as mask_utils
@@ -13,9 +14,9 @@ LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
 class PredictionMaskApplier(object):
 
     def __init__(self, log_level='INFO', log_file=None):
-        self.logger = self.get_logger(log_level, log_file)
+        self.logger = self._get_logger(log_level, log_file)
 
-    def get_logger(self, log_level='INFO', log_file=None, mode='a'):
+    def _get_logger(self, log_level='INFO', log_file=None, mode='a'):
         LOG_FORMAT = '%(asctime)s|%(levelname)-8s|%(message)s'
         LOG_DATEFMT = '%Y-%m-%d %H:%M:%S'
 
