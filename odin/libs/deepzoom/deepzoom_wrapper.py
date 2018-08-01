@@ -1,16 +1,25 @@
 from openslide import OpenSlide
 from openslide.deepzoom import DeepZoomGenerator
+from openslide.lowlevel import OpenSlideUnsupportedFormatError
 
+import os
 from cStringIO import StringIO
 from PIL import Image
 
-from odin.libs.deepzoom.errors import DZILevelOutOfBounds, DZIBadTileAddress
+from odin.libs.deepzoom.errors import DZILevelOutOfBounds, DZIBadTileAddress, UnsupportedFormatError,\
+    MissingFileError
 
 
 class DeepZoomWrapper(object):
 
     def __init__(self, image_path, tile_size, tile_overlap=0, limit_bounds=True):
-        slide = OpenSlide(image_path)
+        try:
+            slide = OpenSlide(image_path)
+        except OpenSlideUnsupportedFormatError:
+            if os.path.isfile(image_path):
+                raise UnsupportedFormatError()
+            else:
+                raise MissingFileError()
         self.dzi_wrapper = DeepZoomGenerator(slide, tile_size=tile_size, overlap=tile_overlap,
                                              limit_bounds=limit_bounds)
         self.tile_size = tile_size
