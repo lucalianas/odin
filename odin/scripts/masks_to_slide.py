@@ -81,7 +81,8 @@ class MasksToSlideApplier(object):
             full_mask[origin_x:origin_x+mask.shape[0], origin_y:origin_y+mask.shape[1]] = mask
         return full_mask
 
-    def run(self, slide_label, zoom_level, slides_folder, masks_folder, out_folder):
+    def run(self, slide_label, zoom_level, slides_folder, masks_folder, out_folder, contours_color,
+            contours_thickness):
         self.logger.info('Starting job')
         slide_file = os.path.join(slides_folder, '%s.mrxs' % slide_label)
         masks_folder = os.path.join(masks_folder, slide_label)
@@ -95,7 +96,7 @@ class MasksToSlideApplier(object):
             self.logger.info('Prediction mask created')
             self.logger.info('Applying contours to full slide')
             contours = extract_contours(full_mask)
-            slide_img = Image.fromarray(apply_contours(slide_img, contours, (0, 0, 255), 3))
+            slide_img = Image.fromarray(apply_contours(slide_img, contours, contours_color, contours_thickness))
             slide_img.save(os.path.join(out_folder, '%s.jpeg' % slide_label))
             self.logger.info('Slide saved as file %s', os.path.join(out_folder, '%s.jpeg' % slide_label))
             self.logger.info('Job completed')
@@ -113,6 +114,8 @@ def get_parser():
     parser.add_argument('--slides-folder', type=str, required=True, help='')
     parser.add_argument('--masks-folder', type=str, required=True, help='')
     parser.add_argument('--output-folder', type=str, required=True, help='')
+    parser.add_argument('--contours-color', nargs='+', type=int, default=[0, 0, 255], help='')
+    parser.add_argument('--contours-thickness', type=int, default=2, help='')
     parser.add_argument('--log-level', type=str, default='INFO', help='log level (default=INFO)')
     parser.add_argument('--log-file', type=str, default=None, help='log file (default=stderr)')
     return parser
@@ -123,7 +126,7 @@ def main(argv):
     args = parser.parse_args(argv)
     masks_applier = MasksToSlideApplier(args.log_level, args.log_file)
     masks_applier.run(args.slide_label, args.zoom_level, args.slides_folder, args.masks_folder,
-                      args.output_folder)
+                      args.output_folder, args.contours_color, args.contours_thickness)
 
 
 if __name__ == '__main__':
