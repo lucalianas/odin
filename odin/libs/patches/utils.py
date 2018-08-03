@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+from PIL.Image import Image
 
 from odin.libs.masks_manager.utils import binary_mask_to_rgb, binary_mask_to_rgba
 
@@ -22,5 +23,7 @@ def apply_mask(patch_img, mask, mask_color, mask_alpha=None):
 
 
 def apply_contours(patch_img, contours, color, thickness):
+    if type(patch_img) == Image:
+        patch_img = np.array(patch_img)
     patch_copy = patch_img.copy()
     return cv2.drawContours(patch_copy, contours, -1, color, thickness)
