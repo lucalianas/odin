@@ -61,10 +61,10 @@ class TilesExtractor(object):
 
     def _get_reduced_tiles(self, zoom_level, column, row):
         return {
-            'upper_left': self._get_reduced_tile(zoom_level, column-1, row-1),
-            'upper_right': self._get_reduced_tile(zoom_level, column, row-1),
-            'lower_left': self._get_reduced_tile(zoom_level, column-1, row),
-            'lower_right': self._get_reduced_tile(zoom_level, column, row)
+            'upper_left': self._get_reduced_tile(zoom_level, column, row),
+            'upper_right': self._get_reduced_tile(zoom_level, column+1, row),
+            'lower_left': self._get_reduced_tile(zoom_level, column, row+1),
+            'lower_right': self._get_reduced_tile(zoom_level, column+1, row+1)
         }
 
     def _combine_reduced_tiles(self, reduced_tiles):
@@ -114,10 +114,10 @@ class TilesExtractor(object):
         finally:
             out_folder = os.path.join(out_folder, self.slide_label)
             self.logger.debug('Saving tile into folder %s', out_folder)
-        # adding one extra row and one extra column to cover lower and right borders
-        for row in xrange(0, tiles_resolution['rows']+1):
+        # adding one extra row and one extra column to cover upper and left borders
+        for row in xrange(-1, tiles_resolution['rows']):
             self.logger.debug('Processing row %d', row)
-            for col in xrange(0, tiles_resolution['columns']+1):
+            for col in xrange(-1, tiles_resolution['columns']):
                 self.logger.debug('Processing column %d', col)
                 tiles = self._get_tiles(target_level, col, row, max_white_percentage)
                 for address, tile in tiles.iteritems():
