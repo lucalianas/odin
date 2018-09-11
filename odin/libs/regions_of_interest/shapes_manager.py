@@ -82,6 +82,25 @@ class Shape(object):
                     cv2.fillPoly(mask, np.array([ipath,]), 1)
                 return mask
 
+    def get_full_mask(self, scale_level=0, tolerance=0):
+        if scale_level < 0:
+            polygon = self._rescale_polygon(scale_level)
+            scale_factor = pow(2, scale_level)
+        else:
+            polygon = self.polygon
+            scale_factor = 1
+        if tolerance > 0:
+            polygon = polygon.simplify(tolerance, preserve_topology=False)
+        bounds = self.get_bounds()
+        box_height = int((bounds['y_max']-bounds['y_min'])*scale_factor)
+        box_width = int((bounds['x_max']-bounds['x_min'])*scale_factor)
+        mask = np.zeros((box_height, box_width), dtype=np.uint8)
+        polygon_path = polygon.exterior.coords[:]
+        polygon_path = [(int(x - bounds['x_min']*scale_factor),
+                         int(y - bounds['y_min']*scale_factor)) for x, y in polygon_path]
+        cv2.fillPoly(mask, np.array([polygon_path,]), 1)
+        return mask
+
     def get_difference_mask(self, box, scale_level=0, tolerance=0):
         return 1 - self.get_intersection_mask(box, scale_level, tolerance)
 
