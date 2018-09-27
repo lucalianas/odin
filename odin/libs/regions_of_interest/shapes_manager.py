@@ -15,8 +15,8 @@ import cv2
 
 class Shape(object):
 
-    def __init__(self, roi_segments):
-        self.polygon = Polygon([(seg['point']['x'], seg['point']['y']) for seg in roi_segments])
+    def __init__(self, segments):
+        self.polygon = Polygon(segments)
 
     def get_bounds(self):
         bounds = self.polygon.bounds
@@ -117,7 +117,7 @@ class ShapesManager(object):
         response = self.promort_client.get(url)
         if response.status_code == rc.OK:
             roi_segments = json.loads(response.json()['roi_json'])['segments']
-            return Shape(roi_segments)
+            return Shape([(seg['point']['x'], seg['point']['y']) for seg in roi_segments])
         else:
             return None
 
