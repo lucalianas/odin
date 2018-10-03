@@ -44,8 +44,12 @@ class Shape(object):
             polygon = self.polygon
         return polygon.area
 
-    def get_length(self):
-        polygon_path = np.array(self.polygon.exterior.coords[:])
+    def get_length(self, scale_level=0):
+        if scale_level != 0:
+            polygon = self._rescale_polygon(scale_level)
+        else:
+            polygon = self.polygon
+        polygon_path = np.array(polygon.exterior.coords[:])
         _, radius = cv2.minEnclosingCircle(polygon_path.astype(int))
         return radius*2
 
