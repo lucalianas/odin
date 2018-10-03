@@ -31,7 +31,7 @@ class Shape(object):
             raise InvalidPolygonError()
 
     def get_coordinates(self, scale_level=0):
-        if scale_level < 0:
+        if scale_level != 0:
             polygon = self._rescale_polygon(scale_level)
         else:
             polygon = self.polygon
@@ -87,7 +87,7 @@ class Shape(object):
         return scale(self.polygon, xfact=scaling, yfact=scaling, origin=(0, 0))
 
     def get_intersection_mask(self, box, scale_level=0, tolerance=0):
-        if scale_level < 0:
+        if scale_level != 0:
             polygon = self._rescale_polygon(scale_level)
         else:
             polygon = self.polygon
@@ -115,7 +115,7 @@ class Shape(object):
                 return mask
 
     def get_full_mask(self, scale_level=0, tolerance=0):
-        if scale_level < 0:
+        if scale_level != 0:
             polygon = self._rescale_polygon(scale_level)
             scale_factor = pow(2, scale_level)
         else:
