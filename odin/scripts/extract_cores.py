@@ -141,7 +141,8 @@ class AutomaticCoresExtractor(object):
                 'coordinates': slice.get_coordinates(scale_factor),
                 'cores': [
                     {'coordinates': c.get_coordinates(scale_factor),
-                     'length': c.get_length()}
+                     'length': c.get_length(scale_factor),
+                     'area': c.get_area(scale_factor)}
                     for c in group]
             }
             slide_shapes.append(slice_map)
