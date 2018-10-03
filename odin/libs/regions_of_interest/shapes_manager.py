@@ -37,8 +37,12 @@ class Shape(object):
             polygon = self.polygon
         return list(polygon.exterior.coords)
 
-    def get_area(self):
-        return self.polygon.area
+    def get_area(self, scale_level=0):
+        if scale_level != 0:
+            polygon = self._rescale_polygon(scale_level)
+        else:
+            polygon = self.polygon
+        return polygon.area
 
     def get_length(self):
         polygon_path = np.array(self.polygon.exterior.coords[:])
