@@ -51,7 +51,7 @@ class PredictionMaskApplier(object):
                     'mask_file': os.path.join(masks_dir, m),
                     'patch_file': os.path.join(patches_dir, '%s.jpeg' % uuid)
                 }
-        self.logger.info('Mapeed %d patches to mask' % len(patches_map))
+        self.logger.info('Mapped %d patches to mask' % len(patches_map))
         return patches_map
 
     def _load_patch(self, patch_path):

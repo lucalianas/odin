@@ -15,8 +15,8 @@ import cv2
 
 class Shape(object):
 
-    def __init__(self, roi_segments):
-        self.polygon = Polygon([(seg['point']['x'], seg['point']['y']) for seg in roi_segments])
+    def __init__(self, segments):
+        self.polygon = Polygon(segments)
 
     def get_bounds(self):
         bounds = self.polygon.bounds
@@ -29,6 +29,46 @@ class Shape(object):
             }
         except IndexError:
             raise InvalidPolygonError()
+
+    def get_coordinates(self, scale_level=0):
+        if scale_level != 0:
+            polygon = self._rescale_polygon(scale_level)
+        else:
+            polygon = self.polygon
+        return list(polygon.exterior.coords)
+
+    def get_area(self, scale_level=0):
+        if scale_level != 0:
+            polygon = self._rescale_polygon(scale_level)
+        else:
+            polygon = self.polygon
+        return polygon.area
+
+    def get_length(self, scale_level=0):
+        if scale_level != 0:
+            polygon = self._rescale_polygon(scale_level)
+        else:
+            polygon = self.polygon
+        polygon_path = np.array(polygon.exterior.coords[:])
+        _, radius = cv2.minEnclosingCircle(polygon_path.astype(int))
+        return radius*2
+
+    def get_bounding_box(self, x_min=None, y_min=None, x_max=None, y_max=None):
+        p1, p2, p3, p4 = self.get_bounding_box_points(x_min, y_min, x_max, y_max)
+        return self._box_to_polygon({
+                'up_left': p1,
+                'up_right': p2,
+                'down_right': p3,
+                'down_left': p4
+            })
+
+    def get_bounding_box_points(self, x_min=None, y_min=None, x_max=None, y_max=None):
+        bounds = self.get_bounds()
+        xm = x_min if not x_min is None else bounds['x_min']
+        xM = x_max if not x_max is None else bounds['x_max']
+        ym = y_min if not y_min is None else bounds['y_min']
+        yM = y_max if not y_max is None else bounds['y_max']
+        return [(xm, ym), (xM, ym), (xM, yM), (xm, yM)]
 
     def get_random_point(self):
         bounds = self.get_bounds()
@@ -55,7 +95,7 @@ class Shape(object):
         return scale(self.polygon, xfact=scaling, yfact=scaling, origin=(0, 0))
 
     def get_intersection_mask(self, box, scale_level=0, tolerance=0):
-        if scale_level < 0:
+        if scale_level != 0:
             polygon = self._rescale_polygon(scale_level)
         else:
             polygon = self.polygon
@@ -82,6 +122,25 @@ class Shape(object):
                     cv2.fillPoly(mask, np.array([ipath,]), 1)
                 return mask
 
+    def get_full_mask(self, scale_level=0, tolerance=0):
+        if scale_level != 0:
+            polygon = self._rescale_polygon(scale_level)
+            scale_factor = pow(2, scale_level)
+        else:
+            polygon = self.polygon
+            scale_factor = 1
+        if tolerance > 0:
+            polygon = polygon.simplify(tolerance, preserve_topology=False)
+        bounds = self.get_bounds()
+        box_height = int((bounds['y_max']-bounds['y_min'])*scale_factor)
+        box_width = int((bounds['x_max']-bounds['x_min'])*scale_factor)
+        mask = np.zeros((box_height, box_width), dtype=np.uint8)
+        polygon_path = polygon.exterior.coords[:]
+        polygon_path = [(int(x - bounds['x_min']*scale_factor),
+                         int(y - bounds['y_min']*scale_factor)) for x, y in polygon_path]
+        cv2.fillPoly(mask, np.array([polygon_path, ]), 1)
+        return mask
+
     def get_difference_mask(self, box, scale_level=0, tolerance=0):
         return 1 - self.get_intersection_mask(box, scale_level, tolerance)
 
@@ -98,7 +157,7 @@ class ShapesManager(object):
         response = self.promort_client.get(url)
         if response.status_code == rc.OK:
             roi_segments = json.loads(response.json()['roi_json'])['segments']
-            return Shape(roi_segments)
+            return Shape([(seg['point']['x'], seg['point']['y']) for seg in roi_segments])
         else:
             return None
 
