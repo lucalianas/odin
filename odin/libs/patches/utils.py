@@ -31,6 +31,18 @@ def extract_white_mask(patch_img, lower_bound):
     return white_mask / 255
 
 
+def extract_saturation_mask(patch_img, min_saturation):
+    cv2_patch = np.array(patch_img)
+    img_width, img_height, _ = cv2_patch.shape
+    filter_mask = np.zeros((img_width, img_height), dtype=np.bool)
+    hsv_image = cv2.cvtColor(cv2_patch, cv2.COLOR_BGR2HSV)
+    for x in xrange(0, img_width):
+        for y in xrange(0, img_height):
+            if hsv_image[x, y, 1] >= min_saturation:
+                filter_mask[x, y] = 1
+    return filter_mask
+
+
 def apply_mask(patch_img, mask, mask_color, mask_alpha=None):
     patch_copy = patch_img.copy()
     if mask_alpha is None:
