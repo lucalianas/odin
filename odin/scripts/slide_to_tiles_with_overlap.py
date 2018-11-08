@@ -7,7 +7,7 @@ sys.path.append('../../')
 
 from odin.libs.deepzoom.deepzoom_wrapper import DeepZoomWrapper
 from odin.libs.deepzoom.errors import UnsupportedFormatError, MissingFileError, DZIBadTileAddress
-from odin.libs.patches.utils import extract_white_mask
+from odin.libs.patches.utils import extract_saturation_mask
 
 LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
 
@@ -19,8 +19,7 @@ class TilesExtractor(object):
         if not self.tile_size % 2 == 0:
             raise ValueError('Tile size must be an even number')
         try:
-            self.dzi_extractor_wrapper = DeepZoomWrapper(slide_path, self.tile_size/2)
-            self.dzi_description_wrapper = DeepZoomWrapper(slide_path, self.tile_size)
+            self.dzi_wrapper = DeepZoomWrapper(slide_path, self.tile_size)
         except MissingFileError:
             sys.exit('%s is not a valid file' % slide_path)
         except UnsupportedFormatError:
@@ -53,58 +52,58 @@ class TilesExtractor(object):
         logger.addHandler(handler)
         return logger
 
-    def _get_reduced_tile(self, zoom_level, column, row):
-        try:
-            return self.dzi_extractor_wrapper.get_tile(zoom_level, column, row)
-        except DZIBadTileAddress:
-            return None
-
-    def _get_reduced_tiles(self, zoom_level, column, row):
-        return {
-            'upper_left': self._get_reduced_tile(zoom_level, column, row),
-            'upper_right': self._get_reduced_tile(zoom_level, column+1, row),
-            'lower_left': self._get_reduced_tile(zoom_level, column, row+1),
-            'lower_right': self._get_reduced_tile(zoom_level, column+1, row+1)
-        }
-
-    def _combine_reduced_tiles(self, reduced_tiles):
-        background_img = Image.new('RGB', (self.tile_size, self.tile_size), (255, 255, 255))
-        if reduced_tiles['upper_left']:
-            background_img.paste(reduced_tiles['upper_left'], (0, 0))
-        if reduced_tiles['upper_right']:
-            background_img.paste(reduced_tiles['upper_right'], (self.tile_size/2, 0))
-        if reduced_tiles['lower_left']:
-            background_img.paste(reduced_tiles['lower_left'], (0, self.tile_size/2))
-        if reduced_tiles['lower_right']:
-            background_img.paste(reduced_tiles['lower_right'], (self.tile_size/2, self.tile_size/2))
-        return background_img
+    def _get_big_tile(self, zoom_level, column, row):
+        big_tile = Image.new('RGB', (self.tile_size*2, self.tile_size*2), (255, 255, 255))
+        for x in (column, column+1):
+            for y in (row, row+1):
+                try:
+                    tile = self.dzi_wrapper.get_tile(zoom_level, x, y)
+                    big_tile.paste(tile, (
+                        x * self.tile_size - column * self.tile_size,
+                        y * self.tile_size - row * self.tile_size
+                    ))
+                except DZIBadTileAddress:
+                    self.logger.debug('Unable to load tile %d:%d for level %d', x, y, zoom_level)
+        return big_tile
 
     def _accept_tile(self, tile, max_white_percentage):
-        white_mask = extract_white_mask(tile, 230)
-        white_percentage = white_mask.sum() / np.prod(white_mask.shape)
-        return white_percentage <= max_white_percentage
+        tissue_mask = np.uint8(extract_saturation_mask(tile, 20))
+        tissue_percentage = float(tissue_mask.sum()) / np.prod(tissue_mask.shape)
+        return (1.0 - tissue_percentage) <= max_white_percentage
 
-    def _get_tiles(self, zoom_level, column, row, max_white_percentage):
-        tiles_map = dict()
-        for x in (column*2, (column*2)+1):
-            for y in (row*2, (row*2)+1):
-                tmp_tile = self._combine_reduced_tiles(self._get_reduced_tiles(zoom_level, x, y))
-                if self._accept_tile(tmp_tile, max_white_percentage):
-                    tiles_map['%.1f_%.1f' % (y/2., x/2.)] = tmp_tile
-        return tiles_map
+    def _get_tile_address(self, x, y, column, row):
+        real_x = (column * self.tile_size) + x
+        real_y = (row * self.tile_size) + y
+        return '%010d_%010d' % (real_x, real_y)
 
     def _get_tile_fname(self, zoom_level, address):
         return '%s_L%d_%s.jpeg' % (self.slide_label, zoom_level, address)
 
     def _save_tile(self, tile, tile_fname, out_folder):
+        self.logger.debug('Saving file %s', os.path.join(out_folder, tile_fname))
         if tile:
             with open(os.path.join(out_folder, tile_fname), 'w') as out_file:
                 tile.save(out_file)
 
-    def run(self, zoom_level, max_white_percentage, out_folder):
+    def _extract_tiles(self, zoom_level, column, row, overlap_step, max_white_percentage, out_folder):
+        big_tile = self._get_big_tile(zoom_level, column, row)
+        for x in xrange(0, self.tile_size, int(self.tile_size * overlap_step)):
+            for y in xrange(0, self.tile_size, int(self.tile_size * overlap_step)):
+                # extract a piece from big tile
+                tile = big_tile.crop((x, y, x+self.tile_size, y+self.tile_size))
+                if self._accept_tile(tile, max_white_percentage):
+                    # save tile in tiles_map
+                    self.logger.info('Saving tile for address %r' % self._get_tile_address(x, y, column, row))
+                    tile_fname = self._get_tile_fname(zoom_level, self._get_tile_address(x, y, column, row))
+                    self._save_tile(tile, tile_fname, out_folder)
+                else:
+                    self.logger.debug('COL %d - ROW %d (x %d - y %d) SKIPPED',
+                                      column, row, x, y)
+
+    def run(self, zoom_level, overlap_step, max_white_percentage, out_folder):
         self.logger.info('Starting job')
-        target_level = self.dzi_description_wrapper.get_max_zoom_level() + zoom_level
-        tiles_resolution = self.dzi_description_wrapper.get_level_grid(target_level)
+        target_level = self.dzi_wrapper.get_max_zoom_level() + zoom_level
+        tiles_resolution = self.dzi_wrapper.get_level_grid(target_level)
         self.logger.info('Resolution for level %d --- ROWS: %d COLUMNS: %d', target_level,
                          tiles_resolution['rows'], tiles_resolution['columns'])
         try:
@@ -119,10 +118,7 @@ class TilesExtractor(object):
             self.logger.debug('Processing row %d', row)
             for col in xrange(-1, tiles_resolution['columns']):
                 self.logger.debug('Processing column %d', col)
-                tiles = self._get_tiles(target_level, col, row, max_white_percentage)
-                for address, tile in tiles.iteritems():
-                    tfname = self._get_tile_fname(zoom_level, address)
-                    self._save_tile(tile, tfname, out_folder)
+                self._extract_tiles(target_level, col, row, overlap_step, max_white_percentage, out_folder)
         self.logger.info('Job completed')
 
 
@@ -133,6 +129,8 @@ def get_parser():
                         help='zoom level for extraction (as a negative number where 0 is the slide\'s full resolution level)')
     parser.add_argument('--tile-size', type=int, required=True,
                         help='tile size in pixels (only one dimension required, tiles will be squared)')
+    parser.add_argument('--overlap-step', type=float, default=0.5,
+                        help='the overlap step expressed as a decimal number that will be applied to the tile size')
     parser.add_argument('--out-folder', type=str, required=True, help='output folder for tiles')
     parser.add_argument('--max-white', type=float, default=0.9,
                         help='max percentage of white acceptable for a tile to be valid')
@@ -145,7 +143,7 @@ def main(argv):
     parser = get_parser()
     args = parser.parse_args(argv)
     tiles_extractor = TilesExtractor(args.slide, args.tile_size, args.log_level, args.log_file)
-    tiles_extractor.run(args.zoom_level, args.max_white, args.out_folder)
+    tiles_extractor.run(args.zoom_level, args.overlap_step, args.max_white, args.out_folder)
 
 
 if __name__ == '__main__':
