@@ -68,7 +68,7 @@ class RandomPatchesExtractor(object):
             elif region in negative_regions:
                 fregions['negative'].append((self.shapes_manager.get_focus_region(slide_id, region), region))
             else:
-                self.logger.critical('There is no classification for focus region %d of slide %s', region, slide_id)
+                self.logger.critical('There is no classification for focus region %r of slide %s', region, slide_id)
         return fregions
 
     def _extract_patch(self, point, scaling, extractor):
@@ -180,7 +180,10 @@ class RandomPatchesExtractor(object):
                                         processed = True
                         except InvalidPolygonError:
                             self.logger.error('FocusRegion is not a valid shape, skipping it')
-                self._save_slide_map(slide, slide_map, output_folder)
+                try:
+                    self._save_slide_map(slide, slide_map, output_folder)
+                except IOError:
+                    self.logger.warning('There is no output folder for slide %s, no focus regions map to save', slide)
             self.promort_client.logout()
         except UserNotAllowed, e:
             self.logger.error('UserNotAllowedError: %r', e.message)
