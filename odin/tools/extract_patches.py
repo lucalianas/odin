@@ -135,55 +135,61 @@ class RandomPatchesExtractor(object):
             for row in slide_map:
                 writer.writerow(row)
 
+    def _patches_folder_exists(self, slide_id, output_folder):
+        return os.path.isdir(os.path.join(output_folder, slide_id))
+
     def run(self, focus_regions_list, slides_folder, tile_size, patches_count, scaling, tolerance,
             white_lower_bound, output_folder):
         try:
             self.promort_client.login()
             dependencies_tree, positive_regions, negative_regions = self._build_data_mappings(focus_regions_list)
             for slide, cores in dependencies_tree.iteritems():
-                slide_path = os.path.join(slides_folder, '%s.mrxs' % slide)
-                slide_map = list()
-                self.logger.info('Processing file %s', slide_path)
-                patches_extractor = PatchesExtractor(DeepZoomWrapper(slide_path, tile_size))
-                for core, focus_regions in cores.iteritems():
-                    core_shape = self.shapes_manager.get_core(slide, core)
-                    self.logger.info('Loading core %s', core)
-                    focus_regions_shapes = self._load_focus_regions(focus_regions, slide,
-                                                                    positive_regions, negative_regions)
-                    self.logger.info('Loaded %d positives shapes and %d negatives',
-                                     len(focus_regions_shapes['positive']),
-                                     len(focus_regions_shapes['negative']))
-                    for focus_region in chain(*focus_regions_shapes.values()):
-                        try:
-                            for point in focus_region[0].get_random_points(patches_count):
-                                processed = False
-                                tolerance_value = 0.0
-                                while not processed:
-                                    try:
-                                        patch, coordinates = self._extract_patch(point, scaling, patches_extractor)
-                                        masks = self._build_masks(coordinates, core_shape, focus_regions_shapes['positive'],
-                                                                  focus_regions_shapes['negative'], patch, tile_size,
-                                                                  scaling, tolerance_value, white_lower_bound)
-                                        patch_uuid = self._serialize(patch, masks, slide, output_folder)
-                                        slide_map.append({
-                                            'slide_id': slide,
-                                            'focus_region_id': focus_region[1],
-                                            'patch_uuid': patch_uuid
-                                        })
-                                        processed = True
-                                    except TopologicalError:
-                                        tolerance_value += tolerance
-                                        self.logger.debug('Intersection failed, increasing tolerance to %f',
-                                                          tolerance_value)
-                                    except DZIBadTileAddress, e:
-                                        self.logger.error(e.message)
-                                        processed = True
-                        except InvalidPolygonError:
-                            self.logger.error('FocusRegion is not a valid shape, skipping it')
-                try:
-                    self._save_slide_map(slide, slide_map, output_folder)
-                except IOError:
-                    self.logger.warning('There is no output folder for slide %s, no focus regions map to save', slide)
+                if not self._patches_folder_exists(slide, output_folder):
+                    slide_path = os.path.join(slides_folder, '%s.mrxs' % slide)
+                    slide_map = list()
+                    self.logger.info('Processing file %s', slide_path)
+                    patches_extractor = PatchesExtractor(DeepZoomWrapper(slide_path, tile_size))
+                    for core, focus_regions in cores.iteritems():
+                        core_shape = self.shapes_manager.get_core(slide, core)
+                        self.logger.info('Loading core %s', core)
+                        focus_regions_shapes = self._load_focus_regions(focus_regions, slide,
+                                                                        positive_regions, negative_regions)
+                        self.logger.info('Loaded %d positive shapes and %d negative',
+                                         len(focus_regions_shapes['positive']),
+                                         len(focus_regions_shapes['negative']))
+                        for focus_region in chain(*focus_regions_shapes.values()):
+                            try:
+                                for point in focus_region[0].get_random_points(patches_count):
+                                    processed = False
+                                    tolerance_value = 0.0
+                                    while not processed:
+                                        try:
+                                            patch, coordinates = self._extract_patch(point, scaling, patches_extractor)
+                                            masks = self._build_masks(coordinates, core_shape, focus_regions_shapes['positive'],
+                                                                      focus_regions_shapes['negative'], patch, tile_size,
+                                                                      scaling, tolerance_value, white_lower_bound)
+                                            patch_uuid = self._serialize(patch, masks, slide, output_folder)
+                                            slide_map.append({
+                                                'slide_id': slide,
+                                                'focus_region_id': focus_region[1],
+                                                'patch_uuid': patch_uuid
+                                            })
+                                            processed = True
+                                        except TopologicalError:
+                                            tolerance_value += tolerance
+                                            self.logger.debug('Intersection failed, increasing tolerance to %f',
+                                                              tolerance_value)
+                                        except DZIBadTileAddress, e:
+                                            self.logger.error(e.message)
+                                            processed = True
+                            except InvalidPolygonError:
+                                self.logger.error('FocusRegion is not a valid shape, skipping it')
+                    try:
+                        self._save_slide_map(slide, slide_map, output_folder)
+                    except IOError:
+                        self.logger.warning('There is no output folder for slide %s, no focus regions map to save', slide)
+                else:
+                    self.logger.warning('There is already a patches folder for slide %s, skipping it', slide)
             self.promort_client.logout()
         except UserNotAllowed, e:
             self.logger.error('UserNotAllowedError: %r', e.message)
