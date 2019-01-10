@@ -50,10 +50,10 @@ class RandomPatchesExtractor(object):
             reader = DictReader(f)
             for row in reader:
                 dependencies_tree.setdefault(row['slide_id'], dict())\
-                    .setdefault(row['core_id'], list()).append(row['focus_region_id'])
-                if row['tumor'] == 'True':
+                    .setdefault(row['parent_core_id'], list()).append(row['focus_region_id'])
+                if row['tissue_status'] == 'TUMOR':
                     positive_focus_regions.add(row['focus_region_id'])
-                else:
+                elif row['tissue_status'] == 'NORMAL':
                     negative_focus_regions.add(row['focus_region_id'])
         return dependencies_tree, positive_focus_regions, negative_focus_regions
 
