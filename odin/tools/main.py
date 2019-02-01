@@ -23,7 +23,8 @@ from importlib import import_module
 SUBMODULES_NAMES = [
     'get_cases_scoring',
     'reviews_report',
-    'extract_patches'
+    'extract_patches',
+    'reviews_status',
 ]
 
 SUBMODULES = [import_module('%s.%s' % (__package__, n)) for n in SUBMODULES_NAMES]

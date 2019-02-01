@@ -20,7 +20,8 @@
 import requests
 from urlparse import urljoin
 
-from odin.libs.promort.errors import ProMortAuthenticationError, UserNotAllowed, UserNotLoggedIn
+from odin.libs.promort.errors import ProMortAuthenticationError, UserNotAllowed, UserNotLoggedIn, \
+    ProMortInternalServerError
 
 
 class ProMortClient(object):
@@ -67,10 +68,14 @@ class ProMortClient(object):
         if response.status_code == requests.codes.FORBIDDEN:
             raise UserNotAllowed('User %s is not a member of ODIN group', self.promort_user)
 
-    def get(self, api_url):
+    def get(self, api_url, payload):
         if self._logged_in():
             self._check_permissions()
             request_url = urljoin(self.promort_host, api_url)
-            return self.promort_client.get(request_url)
+            response = self.promort_client.get(request_url, params=payload)
+            if response.status_code == requests.codes.INTERNAL_SERVER_ERROR:
+                raise ProMortInternalServerError(response.text)
+            else:
+                return response
         else:
             raise UserNotLoggedIn('Login not performed')
