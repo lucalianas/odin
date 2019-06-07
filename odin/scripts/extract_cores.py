@@ -65,7 +65,7 @@ class AutomaticCoresExtractor(object):
         ts = [os.path.split(t)[-1].split('.')[0] for t in tiles_list]
         rows = [int(t.split('_')[2]) + 1 for t in ts]
         columns = [int(t.split('_')[3]) + 1 for t in ts]
-        zoom_level = int(ts[0].split('_')[1].split('-')[1])
+        zoom_level = int(ts[0].split('_')[1].replace('L', ''))
         return max(rows) * height, max(columns) * width, zoom_level
 
     def _get_tiles_list(self, tiles_folder):
