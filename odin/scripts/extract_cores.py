@@ -19,7 +19,6 @@
 
 import os, sys, argparse, logging, cv2
 import numpy as np
-from PIL import Image
 try:
     import simplejson as json
 except ImportError:
@@ -60,12 +59,12 @@ class AutomaticCoresExtractor(object):
         logger.addHandler(handler)
         return logger
 
-    def _get_slides_info(self, tiles_list, tile_img):
+    def _get_slides_info(self, tiles_list, tile_img, max_zoom):
         height, width, _ = tile_img.shape
         ts = [os.path.split(t)[-1].split('.')[0] for t in tiles_list]
         rows = [int(t.split('_')[2]) + 1 for t in ts]
         columns = [int(t.split('_')[3]) + 1 for t in ts]
-        zoom_level = int(ts[0].split('_')[1].replace('L', ''))
+        zoom_level = max_zoom - int(ts[0].split('_')[1].replace('L', ''))
         return max(rows) * height, max(columns) * width, zoom_level
 
     def _get_tiles_list(self, tiles_folder):
@@ -167,9 +166,10 @@ class AutomaticCoresExtractor(object):
             slide_shapes.append(slice_map)
         return slide_shapes
 
-    def run(self, tiles_folder, output_file):
+    def run(self, tiles_folder, output_file, max_zoom_level):
         tiles_list = self._get_tiles_list(tiles_folder)
-        img_height, img_width, zoom_level = self._get_slides_info(tiles_list, self._load_tile(tiles_list[0]))
+        img_height, img_width, zoom_level = self._get_slides_info(tiles_list, self._load_tile(tiles_list[0]),
+                                                                  max_zoom_level)
         img_mask = self._get_image_mask(img_height, img_width)
         self._find_tissue(tiles_list, img_mask)
         cores = self._filter_cores(self._get_cores(img_mask), img_height*img_width)
@@ -183,6 +183,8 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--tiles-folder', type=str, required=True,
                         help='the folder containing all the tiles of a slide')
+    parser.add_argument('--max-zoom-level', type=int, required=True,
+                        help='max zoom level for the given slides (used to calculate scale factor)')
     parser.add_argument('--output-file', type=str, required=True, help='output JSON file')
     parser.add_argument('--log-level', type=str, default='INFO', help='log level (default=INFO)')
     parser.add_argument('--log-file', type=str, default=None, help='log file (default=stderr)')
@@ -193,7 +195,7 @@ def main(argv):
     parser = get_parser()
     args = parser.parse_args(argv)
     cores_extractor = AutomaticCoresExtractor(args.log_level, args.log_file)
-    cores_extractor.run(args.tiles_folder, args.output_file)
+    cores_extractor.run(args.tiles_folder, args.output_file, args.max_zoom_level)
 
 
 if __name__ == '__main__':
