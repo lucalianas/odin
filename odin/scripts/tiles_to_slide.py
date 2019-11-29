@@ -81,10 +81,13 @@ class SlideBuilder(object):
         slide_img.save(output_file)
 
     def run(self, tiles_folder, output_file):
+        self.logger.info('Starting job')
         tiles = self._get_tiles_map(tiles_folder)
+        self.logger.info('Loaded %d tiles', len(tiles))
         tw, th = self._get_tile_dimensions(tiles.values()[0])
         slide_img = self._prepare_slide(*self._get_output_image_size(tiles.keys(), tw, th))
         self._build_slide(slide_img, tiles, output_file)
+        self.logger.info('Job completed')
 
 
 def get_parser():
