@@ -1,4 +1,4 @@
-Pillow
+Pillow==6.2.1
 requests
 openslide-python
 opencv-python
