@@ -65,24 +65,32 @@ class ROIsApplier(object):
     def _get_rois_points(self, roi_json):
         return [(s['point']['x'], s['point']['y']) for s in roi_json]
 
-    # right now, extract only focus regions
-    # TODO: check if other ROIs are needed
-    def _load_rois(self, slide_id):
-        query_url = 'api/odin/rois/%s/focus_regions/' % slide_id
+    def _load_rois(self, query_url):
         self.promort_client.login()
         response = self.promort_client.get(query_url, None)
         if response.status_code == 200:
-
-            focus_regions = [(
-                                self._get_rois_points(json.loads(fr['roi_json'])['segments']),
-                                fr['tissue_status']
-                             )
-                             for fr in response.json()]
+            rois = [(
+                self._get_rois_points(json.loads(fr['roi_json'])['segments']),
+                fr.get('tissue_status')
+                )
+                for fr in response.json()]
         else:
-            self.logger.error('ERROR %d while retrieving focus regions', response.status_code)
-            focus_regions = []
+            self.logger.error('ERROR %d while retrieving ROIs', response.status_code)
+            rois = []
         self.promort_client.logout()
-        return focus_regions
+        return rois
+
+    def _load_slices(self, slide_id):
+        self.logger.info('Retrieving slices')
+        return self._load_rois('api/odin/rois/%s/slices/' % slide_id)
+
+    def _load_cores(self, slide_id):
+        self.logger.info('Retrieving cores')
+        return self._load_rois('api/odin/rois/%s/cores/' % slide_id)
+
+    def _load_focus_regions(self, slide_id):
+        self.logger.info('Retrieving focus regions')
+        return self._load_rois('api/odin/rois/%s/focus_regions/' % slide_id)
 
     def _get_scaled_shape(self, roi_json, scale_factor):
         self.logger.debug('Rescaling ROI')
@@ -95,25 +103,36 @@ class ROIsApplier(object):
         self.logger.debug('Saving image to %s', out_path)
         image.save(out_path)
 
-    def _apply_rois(self, original_slide, rois_json, zoom_level, slide_label, output_path):
+    def _draw_roi(self, image, roi_json, zoom_level, line_color, line_width=5):
+        scaled_roi = self._get_scaled_shape(roi_json[0], zoom_level)
+        image.line(list(scaled_roi[0]), fill=line_color, width=line_width)
+
+    def _apply_rois(self, original_slide, slices, cores, focus_regions, zoom_level, slide_label, output_path):
         image = Image.open(original_slide)
         draw = ImageDraw.Draw(image)
+        self.logger.info('Applying slices')
+        for rj in slices:
+            self._draw_roi(draw, rj, zoom_level, 'black')
+        self.logger.info('Applying cores')
+        for rj in cores:
+            self._draw_roi(draw, rj, zoom_level, 'blue')
+        self.logger.info('Applying focus regions')
         tissue_color_map = {
             'TUMOR': 'red',
             'NORMAL': 'green',
             'STRESSED': 'orange'
         }
-        for rj in rois_json:
-            scaled_roi = self._get_scaled_shape(rj[0], zoom_level)
-            draw.line(list(scaled_roi[0]), fill=tissue_color_map[rj[1]], width=5)
+        for rj in focus_regions:
+            self._draw_roi(draw, rj, zoom_level, tissue_color_map[rj[1]])
         self._save_new_image(image, slide_label, output_path)
 
     def run(self, original_slide, zoom_level, output_path):
         slide_label = self._get_slide_label(original_slide)
         self.logger.info('Processing ROIs for slide %s', slide_label)
-        rois = self._load_rois(slide_label)
-        self.logger.debug('Loaded %d ROIs', len(rois))
-        self._apply_rois(original_slide, rois, zoom_level, slide_label, output_path)
+        slices = self._load_slices(slide_label)
+        cores = self._load_cores(slide_label)
+        focus_regions = self._load_focus_regions(slide_label)
+        self._apply_rois(original_slide, slices, cores, focus_regions, zoom_level, slide_label, output_path)
         self.logger.info('Job completed')
 
 
