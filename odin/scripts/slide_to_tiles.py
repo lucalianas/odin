@@ -20,6 +20,7 @@
 import os, sys, argparse, logging
 import numpy as np
 from PIL import Image
+from multiprocessing import Pool, cpu_count
 
 # TODO: install.py for odin lib and remove this abomination
 sys.path.append('../../')
@@ -31,17 +32,23 @@ from odin.libs.patches.utils import extract_white_mask
 LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
 
 
+def extract_row_tiles(dzi_wrapper, slide_label, tile_size, row, col, zoom_level, max_white, out_folder):
+    return TilesExtractor.process_row(dzi_wrapper, slide_label, tile_size, row, col, zoom_level, max_white,
+                                      out_folder)
+
+
 class TilesExtractor(object):
 
     def __init__(self, slide_path, tile_size, log_level='INFO', log_file=None):
+        self.slide_path = slide_path
         self.tile_size = tile_size
         try:
-            self.dzi_wrapper = DeepZoomWrapper(slide_path, self.tile_size)
+            self.dzi_wrapper = DeepZoomWrapper(self.slide_path, self.tile_size)
         except MissingFileError:
-            sys.exit('%s is not a valid file' % slide_path)
+            sys.exit('%s is not a valid file' % self.slide_path)
         except UnsupportedFormatError:
             sys.exit('file type not supported')
-        self.slide_label = self._get_slide_label(slide_path)
+        self.slide_label = self._get_slide_label(self.slide_path)
         self.logger = self._get_logger(log_level, log_file)
 
     def _get_slide_label(self, slide_path):
@@ -69,34 +76,54 @@ class TilesExtractor(object):
         logger.addHandler(handler)
         return logger
 
-    def _complete_tile(self, tile):
-        white_img = Image.new('RGB', (self.tile_size, self.tile_size), (255, 255, 255))
-        white_img.paste(tile, (0, 0))
-        return white_img
+    @staticmethod
+    def process_row(slide_path, slide_label, tile_size, row, columns, zoom_level, max_white_percentage,
+                    out_folder):
+        dzi_wrapper = DeepZoomWrapper(slide_path, tile_size)
+        for col in xrange(0, columns):
+            # logger.debug('Processing column %d', col)
+            tile = TilesExtractor._get_tile(dzi_wrapper, tile_size,
+                                            zoom_level, col, row, max_white_percentage)
+            if tile:
+                tfname = TilesExtractor._get_tile_fname(slide_label, zoom_level, col, row)
+                TilesExtractor._save_tile(tile, tfname, out_folder)
+            # else:
+            #     logger.debug('ignoring tile %d_%d, not enough tissue', (row, col))
+        return row
 
-    def _accept_tile(self, tile, max_white_percentage):
-        white_mask = extract_white_mask(tile, 230)
-        white_percentage = white_mask.sum() / np.prod(white_mask.shape)
-        return white_percentage <= max_white_percentage
-
-    def _get_tile(self, zoom_level, column, row, max_white_percentage):
-        tile = self.dzi_wrapper.get_tile(zoom_level, column, row)
-        tile = self._complete_tile(tile)
-        if self._accept_tile(tile, max_white_percentage):
+    @staticmethod
+    def _get_tile(dzi_wrapper, tile_size, zoom_level, column, row, max_white_percentage):
+        tile = dzi_wrapper.get_tile(zoom_level, column, row)
+        tile = TilesExtractor._complete_tile(tile, tile_size)
+        if TilesExtractor._accept_tile(tile, max_white_percentage):
             return tile
         else:
             return None
 
-    def _get_tile_fname(self, zoom_level, column, row):
-        return '%s_L%d_%d_%d.jpeg' % (self.slide_label, zoom_level, row, column)
+    @staticmethod
+    def _complete_tile(tile, tile_size):
+        white_img = Image.new('RGB', (tile_size, tile_size), (255, 255, 255))
+        white_img.paste(tile, (0, 0))
+        return white_img
 
-    def _save_tile(self, tile, tile_fname, out_folder):
+    @staticmethod
+    def _accept_tile(tile, max_white_percentage):
+        white_mask = extract_white_mask(tile, 230)
+        white_percentage = white_mask.sum() / np.prod(white_mask.shape)
+        return white_percentage <= max_white_percentage
+
+    @staticmethod
+    def _get_tile_fname(slide_label, zoom_level, column, row):
+        return '%s_L%d_%d_%d.jpeg' % (slide_label, zoom_level, row, column)
+
+    @staticmethod
+    def _save_tile(tile, tile_fname, out_folder):
         if tile:
             with open(os.path.join(out_folder, tile_fname), 'w') as out_file:
                 tile.save(out_file)
 
-    def run(self, zoom_level, max_white_percentage, out_folder):
-        self.logger.info('Starting job')
+    def run(self, zoom_level, max_white_percentage, out_folder, max_processes):
+        self.logger.info('Starting job with %d parallel processes', max_processes)
         target_level = self.dzi_wrapper.get_max_zoom_level() + zoom_level
         tiles_resolution = self.dzi_wrapper.get_level_grid(target_level)
         self.logger.info('Resolution for level %d --- ROWS: %d COLUMNS: %d', target_level,
@@ -109,16 +136,14 @@ class TilesExtractor(object):
         finally:
             out_folder = os.path.join(out_folder, self.slide_label)
             self.logger.debug('Saving tile into folder %s', out_folder)
-        for row in xrange(0, tiles_resolution['rows']):
-            self.logger.debug('Processing row %d', row)
-            for col in xrange(0, tiles_resolution['columns']):
-                self.logger.debug('Processing column %d', col)
-                tile = self._get_tile(target_level, col, row, max_white_percentage)
-                if tile:
-                    tfname = self._get_tile_fname(zoom_level, col, row)
-                    self._save_tile(tile, tfname, out_folder)
-                else:
-                    self.logger.debug('Ignoring tile %d_%d, too much white' % (row, col))
+        runners_pool = Pool(processes=max_processes)
+        results = [runners_pool.apply_async(extract_row_tiles, (self.slide_path, self.slide_label, self.tile_size, row,
+                                                                tiles_resolution['columns'], target_level,
+                                                                max_white_percentage,
+                                                                out_folder)) for row in
+                   xrange(0, tiles_resolution['rows'])]
+        for p in results:
+            self.logger.debug('Row %d processed' % p.get())
         self.logger.info('Job completed')
 
 
@@ -132,16 +157,27 @@ def get_parser():
     parser.add_argument('--out-folder', type=str, required=True, help='output folder for tiles')
     parser.add_argument('--max-white', type=float, default=0.9,
                         help='max percentage of white acceptable for a tile to be valid')
+    parser.add_argument('--max-processes', type=int,
+                        help='maximum number of allowed parallel processes, if not specified all available CPUs will be used')
     parser.add_argument('--log-level', type=str, default='INFO', help='log level (default=INFO)')
     parser.add_argument('--log-file', type=str, default=None, help='log file (default=stderr)')
     return parser
 
 
+def get_max_processes(user_max_processes):
+    max_cpus = cpu_count()
+    if not user_max_processes:
+        return max_cpus
+    else:
+        return min(user_max_processes, max_cpus)
+
+
 def main(argv):
     parser = get_parser()
     args = parser.parse_args(argv)
+    max_processes = get_max_processes(args.max_processes)
     tiles_extractor = TilesExtractor(args.slide, args.tile_size, args.log_level, args.log_file)
-    tiles_extractor.run(args.zoom_level, args.max_white, args.out_folder)
+    tiles_extractor.run(args.zoom_level, args.max_white, args.out_folder, max_processes)
 
 
 if __name__ == '__main__':
