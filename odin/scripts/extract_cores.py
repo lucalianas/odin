@@ -17,8 +17,9 @@
 #  IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 #  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-import os, sys, argparse, logging, cv2
+import sys, argparse, logging, cv2, pickle
 import numpy as np
+from math import sqrt, log
 try:
     import simplejson as json
 except ImportError:
@@ -36,7 +37,6 @@ class AutomaticCoresExtractor(object):
 
     def __init__(self, log_level='INFO', log_file=None):
         self.logger = self._get_logger(log_level, log_file)
-
 
     def _get_logger(self, log_level='INFO', log_file=None, mode='a'):
         LOG_FORMAT = '%(asctime)s|%(levelname)-8s|%(message)s'
@@ -59,46 +59,17 @@ class AutomaticCoresExtractor(object):
         logger.addHandler(handler)
         return logger
 
-    def _get_slides_info(self, tiles_list, tile_img, max_zoom):
-        height, width, _ = tile_img.shape
-        ts = [os.path.split(t)[-1].split('.')[0] for t in tiles_list]
-        rows = [int(t.split('_')[2]) + 1 for t in ts]
-        columns = [int(t.split('_')[3]) + 1 for t in ts]
-        zoom_level = max_zoom - int(ts[0].split('_')[1].replace('L', ''))
-        return max(rows) * height, max(columns) * width, zoom_level
-
-    def _get_tiles_list(self, tiles_folder):
-        return [os.path.join(tiles_folder, t) for t in os.listdir(tiles_folder) if t.endswith('.jpeg')]
-
-    def _load_tile(self, tile_file):
-        return cv2.imread(tile_file)
-
-    def _get_tile_coordinate(self, tile_path):
-        tile_fname = os.path.split(tile_path)[-1]
-        _, _, row, col = tile_fname.split('.')[0].split('_')
-        return row, col
-
-    def _get_image_mask(self, img_height, img_width):
-        return np.zeros((img_height, img_width), dtype=np.uint8)
-
-    def _get_saturation_mask(self, tile_img):
-        img_width, img_height, _ = tile_img.shape
-        filter_mask = np.zeros((img_width, img_height), dtype=np.bool)
-        hsv_image = cv2.cvtColor(tile_img, cv2.COLOR_BGR2HSV)
-        for x in xrange(0, img_width):
-            for y in xrange(0, img_height):
-                if hsv_image[x, y, 1] > 20:
-                    filter_mask[x, y] = 1
-        return filter_mask
-
-    def _find_tissue(self, tiles, image_mask):
-        for t in tiles:
-            tile_img = self._load_tile(t)
-            saturation_mask = self._get_saturation_mask(tile_img)
-            row, col = self._get_tile_coordinate(t)
-            x = int(col) * tile_img.shape[0]
-            y = int(row) * tile_img.shape[1]
-            image_mask[y:y+tile_img.shape[1], x:x+tile_img.shape[0]] = saturation_mask
+    def _load_mask(self, tissue_mask_file, format='json'):
+        if format == 'json':
+            with open(tissue_mask_file) as f:
+                data = json.loads(f.read())
+                data['mask'] = np.uint8(np.array(data['mask']))
+        elif format == 'pkl':
+            with open(tissue_mask_file, 'rb') as f:
+                data = pickle.load(f)
+        else:
+            raise ValueError('Unsupported file format %s' % format)
+        return data['mask'], data['dimensions']
 
     def _contour_to_shape(self, contour):
         normalize_contour = list()
@@ -110,7 +81,7 @@ class AutomaticCoresExtractor(object):
             return None
 
     def _get_cores(self, tissue_mask):
-        _, contours, _ = cv2.findContours(tissue_mask, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(tissue_mask, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
         contours = filter(None, [self._contour_to_shape(c) for c in contours])
         return contours
 
@@ -120,6 +91,11 @@ class AutomaticCoresExtractor(object):
             if (core.get_area()*100 / slide_area) >= core_min_area:
                 accepted_cores.append(core)
         return accepted_cores
+
+    def _get_scale_factor(self, slide_resolution, mask_resolution):
+        scale_factor = sqrt((slide_resolution[0]*slide_resolution[1]) / (mask_resolution[0]*mask_resolution[1]))
+        self.logger.info('Scale factor is %r', scale_factor)
+        return scale_factor
 
     def _get_sorted_cores_map(self, cores):
         cores_map = dict()
@@ -152,6 +128,7 @@ class AutomaticCoresExtractor(object):
         return Shape([(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)])
 
     def _build_slide_json(self, cores_group, scale_factor):
+        scale_factor = log(scale_factor, 2)
         slide_shapes = list()
         for group in cores_group:
             slice = self._get_slice(group)
@@ -166,25 +143,20 @@ class AutomaticCoresExtractor(object):
             slide_shapes.append(slice_map)
         return slide_shapes
 
-    def run(self, tiles_folder, output_file, max_zoom_level):
-        tiles_list = self._get_tiles_list(tiles_folder)
-        img_height, img_width, zoom_level = self._get_slides_info(tiles_list, self._load_tile(tiles_list[0]),
-                                                                  max_zoom_level)
-        img_mask = self._get_image_mask(img_height, img_width)
-        self._find_tissue(tiles_list, img_mask)
-        cores = self._filter_cores(self._get_cores(img_mask), img_height*img_width)
-        grouped_cores = self._group_nearest_cores(cores, img_height)
-        slide_json = self._build_slide_json(grouped_cores, zoom_level)
+    def run(self, mask_file, output_file):
+        img_mask, original_resolution = self._load_mask(mask_file)
+        cores = self._filter_cores(self._get_cores(img_mask), img_mask.size)
+        grouped_cores = self._group_nearest_cores(cores, img_mask.shape[0])
+        scale_factor = self._get_scale_factor(original_resolution, img_mask.shape)
+        slide_json = self._build_slide_json(grouped_cores, scale_factor)
         with open(output_file, 'w') as ofile:
             ofile.write(json.dumps(slide_json))
 
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--tiles-folder', type=str, required=True,
-                        help='the folder containing all the tiles of a slide')
-    parser.add_argument('--max-zoom-level', type=int, required=True,
-                        help='max zoom level for the given slides (used to calculate scale factor)')
+    parser.add_argument('--tissue-mask', type=str, required=True,
+                        help='the file containing the tissue mask')
     parser.add_argument('--output-file', type=str, required=True, help='output JSON file')
     parser.add_argument('--log-level', type=str, default='INFO', help='log level (default=INFO)')
     parser.add_argument('--log-file', type=str, default=None, help='log file (default=stderr)')
@@ -195,7 +167,7 @@ def main(argv):
     parser = get_parser()
     args = parser.parse_args(argv)
     cores_extractor = AutomaticCoresExtractor(args.log_level, args.log_file)
-    cores_extractor.run(args.tiles_folder, args.output_file, args.max_zoom_level)
+    cores_extractor.run(args.tissue_mask, args.output_file)
 
 
 if __name__ == '__main__':
