@@ -20,18 +20,19 @@
 FROM debian:stretch
 MAINTAINER Luca Lianas luca.lianas@crs4.it
 
-RUN apt-get update && apt-get install -y python \
+RUN apt-get update && apt-get install -y python2.7 \
     python-pip \
-    git \
     libopencv-dev \
-    libopenslide-dev
+    libopenslide-dev \
+    python-mpltoolkits.basemap
 
-WORKDIR /opt
-
-RUN git clone https://github.com/crs4/odin.git
+CMD mkdir /opt/odin
+COPY . /opt/odin
 
 WORKDIR /opt/odin
 
 RUN pip install -r requirements.txt
+
+ENV PYTHONPATH=/opt/odin
 
 CMD bash
