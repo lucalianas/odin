@@ -18,7 +18,7 @@
 #  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 from odin.libs.promort.client import ProMortClient
-from odin.libs.promort.errors import ProMortAuthenticationError, UserNotAllowed
+from odin.libs.promort.errors import ProMortAuthenticationError, UserNotAllowed, ProMortInternalServerError
 
 
 class SendReviewReports(object):
@@ -27,18 +27,17 @@ class SendReviewReports(object):
         self.promort_client = ProMortClient(host, user, passwd)
         self.logger = logger
 
-    def _send_reports(self):
-        url = 'api/odin/reviewers_report/send/'
-        response = self.promort_client.get(url)
+    def _send_reports(self, receiver):
+        url = 'api/odin/reviews_activity_report/send/'
+        response = self.promort_client.get(url, payload={'receiver': receiver})
         return response.json()
 
-    def run(self):
+    def run(self, receiver):
         self.promort_client.login()
         try:
-            send_reports_result = self._send_reports()
-            for reviewer, sent in send_reports_result.iteritems():
-                self.logger.info('Reviewer %s --- report sent: %s', reviewer, sent)
-        except UserNotAllowed, e:
+            self._send_reports(receiver)
+            self.logger.info('Report sent to %s', receiver)
+        except (UserNotAllowed, ProMortInternalServerError) as e:
             self.logger.error(e.message)
             self.promort_client.logout()
         except ProMortAuthenticationError, e:
@@ -52,12 +51,12 @@ add doc
 
 def implementation(host, user, passwd, logger, args):
     send_report = SendReviewReports(host, user, passwd, logger)
-    send_report.run()
+    send_report.run(args.receiver)
 
 
 def make_parser(parser):
-    pass
+    parser.add_argument('--receiver', type=str, required=True, help='report receiver email address')
 
 
 def register(registration_list):
-    registration_list.append(('send_review_reports', help_doc, make_parser, implementation))
+    registration_list.append(('send_reviews_status', help_doc, make_parser, implementation))

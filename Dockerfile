@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 #  Copyright (c) 2019, CRS4
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -19,13 +17,22 @@
 #  IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 #  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-import sys
-from odin.tools.main import main
+FROM debian:stretch
+MAINTAINER Luca Lianas luca.lianas@crs4.it
 
-if __name__ == '__main__':
-    main(sys.argv[1:])
+RUN apt-get update && apt-get install -y python2.7 \
+    python-pip \
+    libopencv-dev \
+    libopenslide-dev \
+    python-mpltoolkits.basemap
 
+CMD mkdir /opt/odin
+COPY . /opt/odin
 
-# Local Variables: **
-# mode: python **
-# End: **
+WORKDIR /opt/odin
+
+RUN pip install -r requirements.txt
+
+ENV PYTHONPATH=/opt/odin
+
+CMD bash

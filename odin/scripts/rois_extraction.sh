@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 #  Copyright (c) 2019, CRS4
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -19,13 +17,26 @@
 #  IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 #  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-import sys
-from odin.tools.main import main
+#!/bin/bash
 
-if __name__ == '__main__':
-    main(sys.argv[1:])
+SLIDE_LABEL="$1"
+SLIDES_FOLDER="$2"
+TILES_FOLDER="$3"
+ORIGIN_IMG_FOLDER="$4"
+ROIS_IMG_FOLDER="$5"
+
+ZOOM_LEVEL="$6"
+
+PROMORT_HOST="$7"
+PROMORT_USER="$8"
+PROMORT_PASSWD="$9"
 
 
-# Local Variables: **
-# mode: python **
-# End: **
+echo "### PROCESSING SLIDE $SLIDE_LABEL ###"
+echo "--- TILES EXTRACTION"
+python slide_to_tiles.py --slide $SLIDES_FOLDER/$SLIDE_LABEL.mrxs --zoom-level $ZOOM_LEVEL --tile-size 1024 --out-folder $TILES_FOLDER --max-white 100
+echo "--- BUILDING JPEG IMAGE"
+python tiles_to_slide.py --tiles-folder $TILES_FOLDER/$SLIDE_LABEL --output-file $ORIGIN_IMG_FOLDER/$SLIDE_LABEL.jpeg
+echo "--- PRINTING ROIS"
+python draw_rois.py --promort-host $PROMORT_HOST --promort-user $PROMORT_USER --promort-passwd $PROMORT_PASSWD --original-slide $ORIGIN_IMG_FOLDER/$SLIDE_LABEL.jpeg --zoom-level $ZOOM_LEVEL --output-path $ROIS_IMG_FOLDER
+echo "### JOB COMPLETED FOR SLIDE $SLIDE_LABEL ###"

@@ -103,5 +103,8 @@ ENV/
 # PyCharm stuff
 .idea
 
+# Visual Studio Code
+.vscode
+
 # Jupyter noteobooks
 notebooks
