@@ -26,18 +26,19 @@ from odin.libs.promort.errors import ProMortAuthenticationError, UserNotAllowed,
 
 class ProMortClient(object):
 
-    def __init__(self, host, user, passwd):
+    def __init__(self, host, user, passwd, session_cookie):
         self.promort_host = host
         self.promort_user = user
         self.promort_passwd = passwd
         self.promort_client = requests.Session()
         self.csrf_token = None
+        self.session_cookie = session_cookie
         self.session_id = None
 
     def _update_payload(self, payload):
         auth_payload = {
             'csrfmiddlewaretoken': self.csrf_token,
-            'promort_sessionid': self.session_id
+            self.session_cookie: self.session_id
         }
         payload.update(auth_payload)
 
@@ -47,7 +48,7 @@ class ProMortClient(object):
         response = self.promort_client.post(url, json=payload)
         if response.status_code == requests.codes.OK:
             self.csrf_token = self.promort_client.cookies.get('csrftoken')
-            self.session_id = self.promort_client.cookies.get('promort_sessionid')
+            self.session_id = self.promort_client.cookies.get(self.session_cookie)
         else:
             raise ProMortAuthenticationError('Authentication failed')
 
