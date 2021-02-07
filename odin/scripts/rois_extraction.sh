@@ -19,24 +19,25 @@
 
 #!/bin/bash
 
-SLIDE_LABEL="$1"
-SLIDES_FOLDER="$2"
-TILES_FOLDER="$3"
-ORIGIN_IMG_FOLDER="$4"
-ROIS_IMG_FOLDER="$5"
+SLIDE_LABEL="${1}"
+SLIDES_FOLDER="${2}"
+TILES_FOLDER="${3}"
+ORIGIN_IMG_FOLDER="${4}"
+ROIS_IMG_FOLDER="${5}"
 
-ZOOM_LEVEL="$6"
+ZOOM_LEVEL="${6}"
 
-PROMORT_HOST="$7"
-PROMORT_USER="$8"
-PROMORT_PASSWD="$9"
+PROMORT_HOST="${7}"
+PROMORT_USER="${8}"
+PROMORT_PASSWD="${9}"
+PROMORT_COOKIE="${10}"
 
 
 echo "### PROCESSING SLIDE $SLIDE_LABEL ###"
 echo "--- TILES EXTRACTION"
 python slide_to_tiles.py --slide $SLIDES_FOLDER/$SLIDE_LABEL.mrxs --zoom-level $ZOOM_LEVEL --tile-size 1024 --out-folder $TILES_FOLDER --max-white 100
-echo "--- BUILDING JPEG IMAGE"
-python tiles_to_slide.py --tiles-folder $TILES_FOLDER/$SLIDE_LABEL --output-file $ORIGIN_IMG_FOLDER/$SLIDE_LABEL.jpeg
+echo "--- BUILDING PNG IMAGE"
+python tiles_to_slide.py --tiles-folder $TILES_FOLDER/$SLIDE_LABEL --output-file $ORIGIN_IMG_FOLDER/$SLIDE_LABEL.png
 echo "--- PRINTING ROIS"
-python draw_rois.py --promort-host $PROMORT_HOST --promort-user $PROMORT_USER --promort-passwd $PROMORT_PASSWD --original-slide $ORIGIN_IMG_FOLDER/$SLIDE_LABEL.jpeg --zoom-level $ZOOM_LEVEL --output-path $ROIS_IMG_FOLDER
+python draw_rois.py --promort-host $PROMORT_HOST --promort-user $PROMORT_USER --promort-passwd $PROMORT_PASSWD --promort-cookie $PROMORT_COOKIE --original-slide $ORIGIN_IMG_FOLDER/$SLIDE_LABEL.png --zoom-level $ZOOM_LEVEL --output-path $ROIS_IMG_FOLDER
 echo "### JOB COMPLETED FOR SLIDE $SLIDE_LABEL ###"
