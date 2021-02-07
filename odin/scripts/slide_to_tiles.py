@@ -81,24 +81,24 @@ class TilesExtractor(object):
                     out_folder):
         dzi_wrapper = DeepZoomWrapper(slide_path, tile_size)
         for col in xrange(0, columns):
-            # logger.debug('Processing column %d', col)
             tile = TilesExtractor._get_tile(dzi_wrapper, tile_size,
                                             zoom_level, col, row, max_white_percentage)
             if tile:
                 tfname = TilesExtractor._get_tile_fname(slide_label, zoom_level, col, row)
                 TilesExtractor._save_tile(tile, tfname, out_folder)
-            # else:
-            #     logger.debug('ignoring tile %d_%d, not enough tissue', (row, col))
         return row
 
     @staticmethod
     def _get_tile(dzi_wrapper, tile_size, zoom_level, column, row, max_white_percentage):
         tile = dzi_wrapper.get_tile(zoom_level, column, row)
         tile = TilesExtractor._complete_tile(tile, tile_size)
-        if TilesExtractor._accept_tile(tile, max_white_percentage):
+        if max_white_percentage == 100:
             return tile
         else:
-            return None
+            if TilesExtractor._accept_tile(tile, max_white_percentage):
+                return tile
+            else:
+                return None
 
     @staticmethod
     def _complete_tile(tile, tile_size):
