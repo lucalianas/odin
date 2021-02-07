@@ -17,7 +17,7 @@
 #  IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 #  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-import os, sys, argparse, logging, json
+import os, sys, argparse, logging, json, PIL
 from PIL import Image, ImageDraw
 
 from shapely.geometry import mapping
@@ -98,7 +98,7 @@ class ROIsApplier(object):
         return mapping(scaled_shape)['coordinates']
 
     def _save_new_image(self, image, slide_label, output_path):
-        out_path = os.path.join(output_path, '%s.jpeg' % slide_label)
+        out_path = os.path.join(output_path, '%s.png' % slide_label)
         self.logger.debug('Saving image to %s', out_path)
         image.save(out_path)
 
