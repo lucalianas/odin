@@ -33,8 +33,9 @@ LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
 
 class ROIsApplier(object):
 
-    def __init__(self, host, user, password, log_level='INFO', log_file=None):
-        self.promort_client = ProMortClient(host, user, password)
+    def __init__(self, host, user, password, cookie, log_level='INFO', log_file=None):
+        PIL.Image.MAX_IMAGE_PIXELS = None
+        self.promort_client = ProMortClient(host, user, password, cookie)
         self.logger = self._get_logger(log_level, log_file)
 
     def _get_logger(self, log_level='INFO', log_file=None, mode='a'):
@@ -66,7 +67,6 @@ class ROIsApplier(object):
         return [(s['point']['x'], s['point']['y']) for s in roi_json]
 
     def _load_rois(self, query_url):
-        self.promort_client.login()
         response = self.promort_client.get(query_url, None)
         if response.status_code == 200:
             rois = [(
@@ -77,7 +77,6 @@ class ROIsApplier(object):
         else:
             self.logger.error('ERROR %d while retrieving ROIs', response.status_code)
             rois = []
-        self.promort_client.logout()
         return rois
 
     def _load_slices(self, slide_id):
@@ -129,9 +128,11 @@ class ROIsApplier(object):
     def run(self, original_slide, zoom_level, output_path):
         slide_label = self._get_slide_label(original_slide)
         self.logger.info('Processing ROIs for slide %s', slide_label)
+        self.promort_client.login()
         slices = self._load_slices(slide_label)
         cores = self._load_cores(slide_label)
         focus_regions = self._load_focus_regions(slide_label)
+        self.promort_client.logout()
         self._apply_rois(original_slide, slices, cores, focus_regions, zoom_level, slide_label, output_path)
         self.logger.info('Job completed')
 
@@ -141,6 +142,8 @@ def get_parser():
     parser.add_argument('--promort-host', type=str, required=True, help='ProMort host')
     parser.add_argument('--promort-user', type=str, required=True, help='ProMort user')
     parser.add_argument('--promort-passwd', type=str, required=True, help='ProMort password')
+    parser.add_argument('--promort-cookie', type=str, default='promort_sessionid',
+                        help='ProMort session cookie name')
     parser.add_argument('--original-slide', type=str, required=True,
                         help='slide (rendered as image) file path')
     parser.add_argument('--zoom-level', type=int, required=True,
@@ -155,7 +158,7 @@ def get_parser():
 def main(argv):
     parser = get_parser()
     args = parser.parse_args(argv)
-    rois_applier = ROIsApplier(args.promort_host, args.promort_user, args.promort_passwd,
+    rois_applier = ROIsApplier(args.promort_host, args.promort_user, args.promort_passwd, args.promort_cookie,
                                args.log_level, args.log_file)
     rois_applier.run(args.original_slide, args.zoom_level, args.output_path)
 
